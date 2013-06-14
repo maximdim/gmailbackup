@@ -71,15 +71,20 @@ public class GmailBackup {
       IMAPStore store = getStore(email);
       
       UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom);
+      int count = 0;
       while(iterator.hasNext()) {
         Message message = iterator.next();
         File f = saveMessage(user, message);
         // update stats
         this.userTimestamps.put(user, message.getReceivedDate());
         System.out.println(iterator.getStats()+" "+f.getAbsolutePath());
+        count++;
+        if (count % 1000 == 0) {
+          saveTimestamp(this.userTimestamps, this.timestampFile);
+        }
       }
+      saveTimestamp(this.userTimestamps, this.timestampFile);
     }
-    saveTimestamp(this.userTimestamps, this.timestampFile);
     System.out.println("Done");
   }
   
