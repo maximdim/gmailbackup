@@ -106,6 +106,7 @@ public class GmailBackup {
 
   private File generateFileName(String user, Message message) throws MessagingException {
     Calendar c = Calendar.getInstance();
+    c.setTime(message.getReceivedDate());
     String year = Integer.toString(c.get(Calendar.YEAR));
     String month = Integer.toString(c.get(Calendar.MONTH));
     String day = Integer.toString(c.get(Calendar.DAY_OF_MONTH));
