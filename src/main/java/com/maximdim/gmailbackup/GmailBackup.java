@@ -108,7 +108,7 @@ public class GmailBackup {
     Calendar c = Calendar.getInstance();
     c.setTime(message.getReceivedDate());
     String year = Integer.toString(c.get(Calendar.YEAR));
-    String month = Integer.toString(c.get(Calendar.MONTH));
+    String month = Integer.toString(c.get(Calendar.MONTH)) + 1;
     String day = Integer.toString(c.get(Calendar.DAY_OF_MONTH));
     if (month.length() < 2) month = "0"+month;
     if (day.length() < 2) day = "0"+day;
