@@ -92,6 +92,9 @@ public class GmailBackup {
   private File saveMessage(String user, Message message) throws Exception {
     File f = generateFileName(user, message);
     f.getParentFile().mkdirs();
+    if (f.exists()) {
+      System.err.println("File already exist: "+f.getAbsolutePath());
+    }
     BufferedOutputStream os = null;
     try {
       os = new BufferedOutputStream(new FileOutputStream(f));
@@ -108,7 +111,7 @@ public class GmailBackup {
     Calendar c = Calendar.getInstance();
     c.setTime(message.getReceivedDate());
     String year = Integer.toString(c.get(Calendar.YEAR));
-    String month = Integer.toString(c.get(Calendar.MONTH)) + 1;
+    String month = Integer.toString(c.get(Calendar.MONTH)+1);
     String day = Integer.toString(c.get(Calendar.DAY_OF_MONTH));
     if (month.length() < 2) month = "0"+month;
     if (day.length() < 2) day = "0"+day;
