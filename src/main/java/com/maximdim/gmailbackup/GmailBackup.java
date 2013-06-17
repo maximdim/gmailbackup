@@ -29,6 +29,8 @@ import javax.mail.search.ComparisonTerm;
 import javax.mail.search.ReceivedDateTerm;
 import javax.mail.search.SearchTerm;
 
+import org.apache.commons.codec.digest.DigestUtils;
+
 import com.google.code.samples.oauth2.OAuth2Authenticator;
 import com.sun.mail.imap.IMAPStore;
 
@@ -107,7 +109,9 @@ public class GmailBackup {
     return f;
   }
 
+  // Format: user_yyyymmddThhmmss_hash.mail
   private File generateFileName(String user, Message message) throws MessagingException {
+    // generate folder
     Calendar c = Calendar.getInstance();
     c.setTime(message.getReceivedDate());
     String year = Integer.toString(c.get(Calendar.YEAR));
@@ -121,20 +125,28 @@ public class GmailBackup {
     folder = new File(folder, month);
     folder = new File(folder, day);
 
-    String id = generateId(user, message);
-    return new File(folder, id+".mail");
-  }
-  
-  private String generateId(String user, Message message) throws MessagingException {
+    // generate name
     StringBuilder sb = new StringBuilder();
     sb.append(user);
     sb.append("_");
     SimpleDateFormat df = new SimpleDateFormat("yyyyMMdd'T'HHmmss");
     sb.append(df.format(message.getReceivedDate()));
-
-    return sb.toString();
+    sb.append("_");
+    sb.append(getHash(message));
+    sb.append(".mail");
+    
+    File file = new File(folder, sb.toString());
+    return file;
   }
-
+  
+  private String getHash(Message m) throws MessagingException {
+    String from = m.getFrom() != null && m.getFrom().length > 0? m.getFrom()[0].toString() : "";
+    String subject = m.getSubject() != null ? m.getSubject() : "";
+    String hash = DigestUtils.md5Hex(from+""+subject);
+    // no need to be super long - the hash part is there just to avoid (infrequent) name collisions
+    return hash.substring(0, 5);
+  }
+  
   private IMAPStore getStore(String email) throws Exception {
     String authToken = OAuth2Authenticator.getToken(this.serviceAccountPkFile, this.serviceAccountId, email);
     System.out.println("authToken OK");
