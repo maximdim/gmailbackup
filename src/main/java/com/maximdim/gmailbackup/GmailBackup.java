@@ -91,7 +91,9 @@ public class GmailBackup {
           System.err.println(e.getMessage());
         }
       }
-      saveTimestamp(this.userTimestamps, this.timestampFile);
+      if (count > 0) {
+        saveTimestamp(this.userTimestamps, this.timestampFile);
+      }
     }
     System.out.println("Done");
   }
