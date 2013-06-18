@@ -33,6 +33,7 @@ import org.apache.commons.codec.digest.DigestUtils;
 
 import com.google.code.samples.oauth2.OAuth2Authenticator;
 import com.sun.mail.imap.IMAPStore;
+import com.sun.mail.util.MessageRemovedIOException;
 
 public class GmailBackup {
   private static final String USER_TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ssZ";
@@ -75,14 +76,19 @@ public class GmailBackup {
       UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom);
       int count = 0;
       while(iterator.hasNext()) {
-        Message message = iterator.next();
-        File f = saveMessage(user, message);
-        // update stats
-        this.userTimestamps.put(user, message.getReceivedDate());
-        System.out.println(iterator.getStats()+" "+f.getAbsolutePath());
-        count++;
-        if (count % 1000 == 0) {
-          saveTimestamp(this.userTimestamps, this.timestampFile);
+        try {
+          Message message = iterator.next();
+          File f = saveMessage(user, message);
+          // update stats
+          this.userTimestamps.put(user, message.getReceivedDate());
+          System.out.println(iterator.getStats()+" "+f.getAbsolutePath());
+          count++;
+          if (count % 100 == 0) {
+            saveTimestamp(this.userTimestamps, this.timestampFile);
+          }
+        }
+        catch (MessageRemovedIOException e) {
+          System.err.println(e.getMessage());
         }
       }
       saveTimestamp(this.userTimestamps, this.timestampFile);
