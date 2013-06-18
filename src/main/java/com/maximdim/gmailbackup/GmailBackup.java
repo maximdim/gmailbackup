@@ -108,7 +108,7 @@ public class GmailBackup {
     File f = generateFileName(user, message);
     f.getParentFile().mkdirs();
     if (f.exists()) {
-      System.err.println("File already exist: "+f.getAbsolutePath());
+      System.out.println("File already exist: "+f.getAbsolutePath());
     }
     BufferedOutputStream os = null;
     try {
