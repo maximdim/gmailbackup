@@ -33,6 +33,7 @@ import org.apache.commons.codec.digest.DigestUtils;
 
 import com.google.code.samples.oauth2.OAuth2Authenticator;
 import com.sun.mail.imap.IMAPStore;
+import com.sun.mail.util.FolderClosedIOException;
 import com.sun.mail.util.MessageRemovedIOException;
 
 public class GmailBackup {
@@ -89,6 +90,10 @@ public class GmailBackup {
         }
         catch (MessageRemovedIOException e) {
           System.err.println(e.getMessage());
+        }
+        catch(FolderClosedIOException e) {
+          System.err.println(e.getMessage());
+          break;
         }
       }
       if (count > 0) {
