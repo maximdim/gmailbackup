@@ -24,6 +24,7 @@ import java.util.Properties;
 import javax.mail.FetchProfile;
 import javax.mail.Folder;
 import javax.mail.Message;
+import javax.mail.MessageRemovedException;
 import javax.mail.MessagingException;
 import javax.mail.search.ComparisonTerm;
 import javax.mail.search.ReceivedDateTerm;
@@ -284,15 +285,20 @@ public class GmailBackup {
 
       List<Message> result = new ArrayList<Message>();
       for(Message m: messages) {
-        if (m.getReceivedDate() != null && m.getReceivedDate().after(fetchFrom)) {
-          String from = m.getFrom()[0].toString();
-          for(String ignore: ignoreFrom) {
-            if (from.toLowerCase().contains(ignore)) {
-              System.out.println("Ignoring email from "+from);
-              continue;
+        try {
+          if (m.getReceivedDate() != null && m.getReceivedDate().after(fetchFrom)) {
+            String from = m.getFrom()[0].toString();
+            for(String ignore: ignoreFrom) {
+              if (from.toLowerCase().contains(ignore)) {
+                System.out.println("Ignoring email from "+from);
+                continue;
+              }
             }
+            result.add(m);
           }
-          result.add(m);
+        }
+        catch (MessageRemovedException e) {
+          System.out.println("Message already removed: "+e.getMessage());
         }
       }
       System.out.println("Result filtered to: " + result.size());
