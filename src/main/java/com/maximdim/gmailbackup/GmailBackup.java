@@ -71,34 +71,39 @@ public class GmailBackup {
     OAuth2Authenticator.initialize();
 
     for(String user: this.users) {
-      System.out.println("Backing up ["+user+"]");
-      String email = user + "@" + this.domain;
-      IMAPStore store = getStore(email);
-      
-      UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom);
-      int count = 0;
-      while(iterator.hasNext()) {
-        try {
-          Message message = iterator.next();
-          File f = saveMessage(user, message);
-          // update stats
-          this.userTimestamps.put(user, message.getReceivedDate());
-          System.out.println(iterator.getStats()+" "+f.getAbsolutePath());
-          count++;
-          if (count % 100 == 0) {
-            saveTimestamp(this.userTimestamps, this.timestampFile);
+      try {
+        System.out.println("Backing up ["+user+"]");
+        String email = user + "@" + this.domain;
+        IMAPStore store = getStore(email);
+        
+        UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom);
+        int count = 0;
+        while(iterator.hasNext()) {
+          try {
+            Message message = iterator.next();
+            File f = saveMessage(user, message);
+            // update stats
+            this.userTimestamps.put(user, message.getReceivedDate());
+            System.out.println(iterator.getStats()+" "+f.getAbsolutePath());
+            count++;
+            if (count % 100 == 0) {
+              saveTimestamp(this.userTimestamps, this.timestampFile);
+            }
+          }
+          catch (MessageRemovedIOException e) {
+            System.err.println(e.getMessage());
+          }
+          catch(FolderClosedIOException e) {
+            System.err.println(e.getMessage());
+            break;
           }
         }
-        catch (MessageRemovedIOException e) {
-          System.err.println(e.getMessage());
-        }
-        catch(FolderClosedIOException e) {
-          System.err.println(e.getMessage());
-          break;
+        if (count > 0) {
+          saveTimestamp(this.userTimestamps, this.timestampFile);
         }
       }
-      if (count > 0) {
-        saveTimestamp(this.userTimestamps, this.timestampFile);
+      catch (Exception e) {
+        System.err.println("Error getting mail for user ["+user+"]: "+e.getMessage());
       }
     }
     System.out.println("Done");
