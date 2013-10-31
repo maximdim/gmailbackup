@@ -48,6 +48,7 @@ public class GmailBackup {
 
   private final List<String> users;
   private final List<String> ignoreFrom;
+  private int maxPerRun;
   
   // storage format:
   // dataDir/domain/year/month/day/user_timestamp.mail
@@ -60,6 +61,7 @@ public class GmailBackup {
     this.timestampFile = new File(p.getProperty("timestampFile"));
     this.users = Arrays.asList(p.getProperty("users").split(","));
     this.ignoreFrom = Arrays.asList(p.getProperty("ignoreFrom").split(","));
+    this.maxPerRun = Integer.parseInt(p.getProperty("maxPerRun", "100000"));
     
     Date oldestDate = getDate(p.getProperty("oldestDate", "2012/01/01"), "yyyy-MM-dd");
     this.userTimestamps = loadTimestamp(this.timestampFile, oldestDate);
@@ -78,7 +80,7 @@ public class GmailBackup {
         
         UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom);
         int count = 0;
-        while(iterator.hasNext()) {
+        while(iterator.hasNext() && count < this.maxPerRun) {
           try {
             Message message = iterator.next();
             File f = saveMessage(user, message);
