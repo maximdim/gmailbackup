@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import javax.mail.Address;
 import javax.mail.FetchProfile;
 import javax.mail.Folder;
 import javax.mail.Message;
@@ -105,7 +106,7 @@ public class GmailBackup {
         }
       }
       catch (Exception e) {
-        System.err.println("Error getting mail for user ["+user+"]: "+e.getMessage());
+        System.err.println("Error getting mail for user ["+user+"]: "+e.getClass().getSimpleName()+": "+e.getMessage());
       }
     }
     System.out.println("Done");
@@ -294,7 +295,12 @@ public class GmailBackup {
       for(Message m: messages) {
         try {
           if (m.getReceivedDate() != null && m.getReceivedDate().after(fetchFrom)) {
-            String from = m.getFrom()[0].toString();
+            Address[] addresses = m.getFrom();
+            if (addresses.length == 0) {
+              System.out.println("Ignoring email with empty from");
+              continue;
+            }
+            String from = addresses[0].toString();
             for(String ignore: ignoreFrom) {
               if (from.toLowerCase().contains(ignore)) {
                 System.out.println("Ignoring email from "+from);
