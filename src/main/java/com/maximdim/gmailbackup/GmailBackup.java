@@ -20,6 +20,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import javax.mail.Address;
 import javax.mail.FetchProfile;
@@ -50,6 +52,7 @@ public class GmailBackup {
   private final List<String> users;
   private final List<String> ignoreFrom;
   private int maxPerRun;
+  private boolean zip;
   
   // storage format:
   // dataDir/domain/year/month/day/user_timestamp.mail
@@ -63,6 +66,7 @@ public class GmailBackup {
     this.users = Arrays.asList(p.getProperty("users").split(","));
     this.ignoreFrom = Arrays.asList(p.getProperty("ignoreFrom").split(","));
     this.maxPerRun = Integer.parseInt(p.getProperty("maxPerRun", "100000"));
+    this.zip = Boolean.parseBoolean(p.getProperty("zip"));
     
     Date oldestDate = getDate(p.getProperty("oldestDate", "2012/01/01"), "yyyy-MM-dd");
     this.userTimestamps = loadTimestamp(this.timestampFile, oldestDate);
@@ -119,6 +123,30 @@ public class GmailBackup {
     if (f.exists()) {
       System.out.println("File already exist: "+f.getAbsolutePath());
     }
+    if (this.zip) {
+      writeZip(f, message);
+    }
+    else {
+      writeFile(f, message);
+    }
+    return f;
+  }
+
+  private void writeZip(File f, Message message) throws IOException, MessagingException {
+    ZipOutputStream zos = null;
+    try {
+      zos = new ZipOutputStream(new FileOutputStream(f));
+      ZipEntry zipEntry = new ZipEntry(f.getName());
+      zos.putNextEntry(zipEntry);
+      message.writeTo(zos);
+      zos.closeEntry();
+    }
+    finally {
+      close(zos);
+    }
+  }
+  
+  private void writeFile(File f, Message message) throws IOException, MessagingException {
     BufferedOutputStream os = null;
     try {
       os = new BufferedOutputStream(new FileOutputStream(f));
@@ -128,7 +156,6 @@ public class GmailBackup {
     finally {
       close(os);
     }
-    return f;
   }
 
   // Format: user_yyyymmddThhmmss_hash.mail
@@ -156,6 +183,9 @@ public class GmailBackup {
     sb.append("_");
     sb.append(getHash(message));
     sb.append(".mail");
+    if (this.zip) {
+      sb.append(".zip");
+    }
     
     File file = new File(folder, sb.toString());
     return file;
