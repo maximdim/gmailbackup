@@ -41,8 +41,6 @@ import com.sun.mail.util.FolderClosedIOException;
 import com.sun.mail.util.MessageRemovedIOException;
 
 public class GmailBackup {
-  private static final int MAX_FETCH = 50000; 
-
   private static final String USER_TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ssZ";
   private final String serviceAccountId;
   private final File serviceAccountPkFile;
@@ -85,7 +83,7 @@ public class GmailBackup {
         String email = user + "@" + this.domain;
         IMAPStore store = getStore(email);
         
-        UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom);
+        UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom, this.maxPerRun);
         int count = 0;
         while(iterator.hasNext() && count < this.maxPerRun) {
           try {
@@ -279,11 +277,13 @@ public class GmailBackup {
   }
   
   static class UserMessagesIterator implements Iterator<Message> {
+    private final int max;
     private final List<Message> messages;
     private int index;
 
-    public UserMessagesIterator(IMAPStore store, Date fetchFrom, List<String> ignoreFrom) throws MessagingException {
+    public UserMessagesIterator(IMAPStore store, Date fetchFrom, List<String> ignoreFrom, int max) throws MessagingException {
       this.messages = getMessages(store, fetchFrom, ignoreFrom);
+      this.max = max;
     }
 
     public String getStats() {
@@ -317,10 +317,11 @@ public class GmailBackup {
       SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GE, fetchFrom);
       Message[] messages = folder.search(st);
       System.out.println("Search returned: " + messages.length);
-      if (messages.length > MAX_FETCH) {
-        messages = Arrays.copyOfRange(messages, 0, MAX_FETCH);
+      if (messages.length > this.max) {
+        messages = Arrays.copyOfRange(messages, 0, max);
         System.out.println("Truncated to "+messages.length);
       }
+      System.out.println("New size: " + messages.length);
       
       // Fetch profile
       FetchProfile fp = new FetchProfile();
