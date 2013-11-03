@@ -41,6 +41,8 @@ import com.sun.mail.util.FolderClosedIOException;
 import com.sun.mail.util.MessageRemovedIOException;
 
 public class GmailBackup {
+  private static final int MAX_FETCH = 50000; 
+
   private static final String USER_TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ssZ";
   private final String serviceAccountId;
   private final File serviceAccountPkFile;
@@ -315,6 +317,11 @@ public class GmailBackup {
       SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GE, fetchFrom);
       Message[] messages = folder.search(st);
       System.out.println("Search returned: " + messages.length);
+      if (messages.length > MAX_FETCH) {
+        messages = Arrays.copyOfRange(messages, 0, MAX_FETCH);
+        System.out.println("Truncated to "+messages.length);
+      }
+      
       // Fetch profile
       FetchProfile fp = new FetchProfile();
       fp.add(FetchProfile.Item.ENVELOPE);
