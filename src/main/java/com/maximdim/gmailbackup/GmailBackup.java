@@ -65,7 +65,7 @@ public class GmailBackup {
     this.timestampFile = new File(p.getProperty("timestampFile"));
     this.users = Arrays.asList(p.getProperty("users").split(","));
     this.ignoreFrom = Arrays.asList(p.getProperty("ignoreFrom").split(","));
-    this.maxPerRun = Integer.parseInt(p.getProperty("maxPerRun", "100000"));
+    this.maxPerRun = Integer.parseInt(p.getProperty("maxPerRun", "10000"));
     this.zip = Boolean.parseBoolean(p.getProperty("zip"));
     
     Date oldestDate = getDate(p.getProperty("oldestDate", "2012/01/01"), "yyyy-MM-dd");
@@ -282,8 +282,8 @@ public class GmailBackup {
     private int index;
 
     public UserMessagesIterator(IMAPStore store, Date fetchFrom, List<String> ignoreFrom, int max) throws MessagingException {
-      this.messages = getMessages(store, fetchFrom, ignoreFrom);
       this.max = max;
+      this.messages = getMessages(store, fetchFrom, ignoreFrom);
     }
 
     public String getStats() {
