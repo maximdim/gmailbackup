@@ -1,3 +1,3 @@
 #!/bin/bash
-java -Done-jar.silent=true -jar $0 $*
+java -Done-jar.silent=true -Xmx512m -jar $0 $*
 exit $?
