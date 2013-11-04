@@ -377,6 +377,9 @@ public class GmailBackup {
         @Override
         public int compare(Message m1, Message m2) {
           try {
+            if (m1.getSentDate() == null) {
+              return -1;
+            }
             return m1.getSentDate().compareTo(m2.getSentDate());
           } 
           catch (MessagingException e) {
