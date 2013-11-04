@@ -114,6 +114,7 @@ public class GmailBackup {
       }
       catch (Exception e) {
         System.err.println("Error getting mail for user ["+user+"]: "+e.getClass().getSimpleName()+": "+e.getMessage());
+        e.printStackTrace(System.err);
       }
     }
     System.out.println("Done");
