@@ -14,6 +14,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -369,7 +370,20 @@ public class GmailBackup {
       FetchProfile fp = new FetchProfile();
       fp.add(FetchProfile.Item.ENVELOPE);
       folder.fetch(messages, fp);
-      
+
+      // messages returned from search not in order. Since we might not process all of them at once we need to sort
+      Arrays.sort(messages, new Comparator<Message>() {
+        @Override
+        public int compare(Message m1, Message m2) {
+          try {
+            return m1.getSentDate().compareTo(m2.getSentDate());
+          } 
+          catch (MessagingException e) {
+            throw new RuntimeException("Comparator error: "+e.getMessage(), e);
+          }
+        }
+      });
+
       return messages;
     }
     
