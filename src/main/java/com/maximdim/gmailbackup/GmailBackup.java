@@ -29,6 +29,7 @@ import javax.mail.Folder;
 import javax.mail.Message;
 import javax.mail.MessageRemovedException;
 import javax.mail.MessagingException;
+import javax.mail.search.AndTerm;
 import javax.mail.search.ComparisonTerm;
 import javax.mail.search.ReceivedDateTerm;
 import javax.mail.search.SearchTerm;
@@ -36,6 +37,7 @@ import javax.mail.search.SearchTerm;
 import org.apache.commons.codec.digest.DigestUtils;
 
 import com.google.code.samples.oauth2.OAuth2Authenticator;
+import com.sun.mail.imap.IMAPFolder;
 import com.sun.mail.imap.IMAPStore;
 import com.sun.mail.util.FolderClosedIOException;
 import com.sun.mail.util.MessageRemovedIOException;
@@ -306,31 +308,14 @@ public class GmailBackup {
     }
 
     private List<Message> getMessages(IMAPStore store, Date fetchFrom, List<String> ignoreFrom) throws MessagingException {
-      Folder folder = store.getFolder("[Gmail]/All Mail");
+      IMAPFolder folder = (IMAPFolder)store.getFolder("[Gmail]/All Mail");
       folder.open(Folder.READ_ONLY);
       System.out.println("imap folder open OK");
-
       int totalMessages = folder.getMessageCount();
       System.out.println("Total messages: " + totalMessages);
 
-      // IMAP search command disregards time, only date is used
-      SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GE, fetchFrom);
-      Message[] messages = folder.search(st);
-      System.out.println("Search returned: " + messages.length);
-      if (messages.length > this.max) {
-        messages = Arrays.copyOfRange(messages, 0, max);
-        System.out.println("Truncated to "+messages.length);
-      }
-      System.out.println("New size: " + messages.length);
-      
-      // Fetch profile
-      FetchProfile fp = new FetchProfile();
-      fp.add(FetchProfile.Item.ENVELOPE);
-      //fp.add("X-mailer");
-      folder.fetch(messages, fp);
-
       List<Message> result = new ArrayList<Message>();
-      for(Message m: messages) {
+      for(Message m: fetch(folder, fetchFrom)) {
         try {
           if (m.getReceivedDate() != null && m.getReceivedDate().after(fetchFrom)) {
             Address[] addresses = m.getFrom();
@@ -355,6 +340,39 @@ public class GmailBackup {
       System.out.println("Result filtered to: " + result.size());
       return result;
     }
+
+    private Date getDateDaysFrom(Date from, int days) {
+      Calendar c = Calendar.getInstance();
+      c.setTime(from);
+      c.add(Calendar.DAY_OF_YEAR, days);
+      return c.getTime();
+    }
+    
+    private Message[] fetch(IMAPFolder folder, Date fetchFrom) throws MessagingException {
+      SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GE, fetchFrom);
+      Date fetchTo = getDateDaysFrom(fetchFrom, 365);
+      if (fetchTo.before(new Date())) {
+        SearchTerm stTo = new ReceivedDateTerm(ComparisonTerm.LT, fetchTo);
+        st = new AndTerm(st, stTo);
+        System.out.println("Setting fetchTo to "+fetchTo);
+      }
+      
+      // IMAP search command disregards time, only date is used
+      Message[] messages = folder.search(st);
+      System.out.println("Search returned: " + messages.length);
+      
+      if (messages.length == 0 && fetchTo.before(new Date())) { // our search window could be too much in the past, retry
+        System.out.println("Retrying with fetchFrom: "+fetchTo);
+        return fetch(folder, fetchTo);
+      }
+      
+      FetchProfile fp = new FetchProfile();
+      fp.add(FetchProfile.Item.ENVELOPE);
+      folder.fetch(messages, fp);
+      
+      return messages;
+    }
+    
   }
   
   private void saveTimestamp(Map<String, Date> data, File f) {
