@@ -380,6 +380,9 @@ public class GmailBackup {
             if (m1.getSentDate() == null) {
               return -1;
             }
+            if (m2.getSentDate() == null) {
+              return 1;
+            }
             return m1.getSentDate().compareTo(m2.getSentDate());
           } 
           catch (MessagingException e) {
