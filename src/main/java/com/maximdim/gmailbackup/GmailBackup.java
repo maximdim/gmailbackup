@@ -380,13 +380,11 @@ public class GmailBackup {
         @Override
         public int compare(Message m1, Message m2) {
           try {
-            if (m1.getSentDate() == null) {
-              return -1;
-            }
-            if (m2.getSentDate() == null) {
-              return 1;
-            }
-            return m1.getSentDate().compareTo(m2.getSentDate());
+            @SuppressWarnings("deprecation")
+            Date old = new Date(200,1,1);
+            Date d1 = m1.getSentDate() != null ? m1.getSentDate() : old;
+            Date d2 = m2.getSentDate() != null ? m2.getSentDate() : old;
+            return d1.compareTo(d2);
           } 
           catch (MessagingException e) {
             throw new RuntimeException("Comparator error: "+e.getMessage(), e);
