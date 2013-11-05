@@ -56,6 +56,7 @@ public class GmailBackup {
   private final List<String> ignoreFrom;
   private int maxPerRun;
   private boolean zip;
+  private int fetchWindowDays;
   
   // storage format:
   // dataDir/domain/year/month/day/user_timestamp.mail
@@ -70,6 +71,7 @@ public class GmailBackup {
     this.ignoreFrom = Arrays.asList(p.getProperty("ignoreFrom").split(","));
     this.maxPerRun = Integer.parseInt(p.getProperty("maxPerRun", "10000"));
     this.zip = Boolean.parseBoolean(p.getProperty("zip"));
+    this.fetchWindowDays = Integer.parseInt(p.getProperty("fetchWindowDays", "90"));
     
     Date oldestDate = getDate(p.getProperty("oldestDate", "2012/01/01"), "yyyy-MM-dd");
     this.userTimestamps = loadTimestamp(this.timestampFile, oldestDate);
@@ -86,7 +88,7 @@ public class GmailBackup {
         String email = user + "@" + this.domain;
         IMAPStore store = getStore(email);
         
-        UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom, this.maxPerRun);
+        UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom, this.maxPerRun, this.fetchWindowDays);
         int count = 0;
         while(iterator.hasNext() && count < this.maxPerRun) {
           try {
@@ -281,12 +283,13 @@ public class GmailBackup {
   }
   
   static class UserMessagesIterator implements Iterator<Message> {
-    private final int max;
+    private final int max, fetchWindowDays;
     private final List<Message> messages;
     private int index;
 
-    public UserMessagesIterator(IMAPStore store, Date fetchFrom, List<String> ignoreFrom, int max) throws MessagingException {
+    public UserMessagesIterator(IMAPStore store, Date fetchFrom, List<String> ignoreFrom, int max, int fetchWindowDays) throws MessagingException {
       this.max = max;
+      this.fetchWindowDays = fetchWindowDays;
       this.messages = getMessages(store, fetchFrom, ignoreFrom);
     }
 
@@ -352,7 +355,7 @@ public class GmailBackup {
     
     private Message[] fetch(IMAPFolder folder, Date fetchFrom) throws MessagingException {
       SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GE, fetchFrom);
-      Date fetchTo = getDateDaysFrom(fetchFrom, 365);
+      Date fetchTo = getDateDaysFrom(fetchFrom, this.fetchWindowDays);
       if (fetchTo.before(new Date())) {
         SearchTerm stTo = new ReceivedDateTerm(ComparisonTerm.LT, fetchTo);
         st = new AndTerm(st, stTo);
