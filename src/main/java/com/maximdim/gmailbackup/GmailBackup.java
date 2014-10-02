@@ -87,6 +87,10 @@ public class GmailBackup {
         System.out.println("Backing up ["+user+"]");
         String email = user + "@" + this.domain;
         IMAPStore store = getStore(email);
+        if (store == null) {
+          System.out.println("Store is null, skip");
+          continue;
+        }
         
         UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom, this.maxPerRun, this.fetchWindowDays);
         int count = 0;
@@ -207,6 +211,10 @@ public class GmailBackup {
   
   private IMAPStore getStore(String email) throws Exception {
     String authToken = OAuth2Authenticator.getToken(this.serviceAccountPkFile, this.serviceAccountId, email);
+    if (authToken == null) {
+      System.out.println("authToken null!");
+      return null;
+    }
     System.out.println("authToken OK");
 
     IMAPStore store = OAuth2Authenticator.connectToImap("imap.gmail.com", 993, email, authToken, false);
