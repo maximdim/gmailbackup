@@ -15,7 +15,7 @@
     <plugins>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>2.3.2</version>
+        <version>3.3</version>
         <configuration>
           <source>${java.version}</source>
           <target>${java.version}</target>
@@ -24,6 +24,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
+        <version>2.3.2</version>
         <configuration>
           <archive>
             <manifest>
@@ -32,6 +33,7 @@
           </archive>
         </configuration>
       </plugin>
+      <!-- 
       <plugin>
         <groupId>org.dstovall</groupId>
         <artifactId>onejar-maven-plugin</artifactId>
@@ -48,6 +50,58 @@
           </execution>
         </executions>
       </plugin>
+       -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>1.6</version>
+        <configuration>
+          <createDependencyReducedPom>true</createDependencyReducedPom>
+          <filters>
+            <filter>
+              <artifact>*:*</artifact>
+              <excludes>
+                <exclude>META-INF/*.SF</exclude>
+                <exclude>META-INF/*.DSA</exclude>
+                <exclude>META-INF/*.RSA</exclude>
+              </excludes>
+            </filter>
+          </filters>
+          <!-- 
+          <artifactSet>
+            <excludes>
+              <exclude>com.h2database:*</exclude>
+            </excludes>
+          </artifactSet>
+           -->
+         </configuration>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <transformers>
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>com.maximdim.loadown.priceservice.PriceService</mainClass>
+                </transformer>
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>META-INF/spring.handlers</resource>
+                </transformer>
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>META-INF/spring.schemas</resource>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <!--  make single self contained shell -->
       <plugin>
         <artifactId>maven-antrun-plugin</artifactId>
@@ -59,7 +113,7 @@
               <target>
                 <concat binary="true" destfile="target/gmailbackup.sh">
                   <filelist dir="src/main/scripts" files="stub.sh"/>
-                  <filelist dir="target" files="${project.name}-${project.version}.one-jar.jar"/>
+                  <filelist dir="target" files="${project.name}-${project.version}.jar"/>
                 </concat>
                 <chmod file="target/gmailbackup.sh" perm="ugo+x"/>
               </target>
