@@ -21,6 +21,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -56,6 +57,7 @@ public class GmailBackup {
   private final List<String> ignoreFrom;
   private int maxPerRun;
   private boolean zip;
+  private boolean gzip;
   private int fetchWindowDays;
   
   // storage format:
@@ -71,6 +73,10 @@ public class GmailBackup {
     this.ignoreFrom = Arrays.asList(p.getProperty("ignoreFrom").split(","));
     this.maxPerRun = Integer.parseInt(p.getProperty("maxPerRun", "10000"));
     this.zip = Boolean.parseBoolean(p.getProperty("zip"));
+    this.gzip = Boolean.parseBoolean(p.getProperty("gzip"));
+    if (this.zip && this.gzip) {
+      throw new IllegalStateException("Both zip and gzip compression specified. Choose one");
+    }
     this.fetchWindowDays = Integer.parseInt(p.getProperty("fetchWindowDays", "90"));
     
     Date oldestDate = getDate(p.getProperty("oldestDate", "2012/01/01"), "yyyy-MM-dd");
@@ -126,7 +132,6 @@ public class GmailBackup {
     System.out.println("Done");
   }
   
-  @SuppressWarnings("resource")
   private File saveMessage(String user, Message message) throws Exception {
     File f = generateFileName(user, message);
     f.getParentFile().mkdirs();
@@ -136,35 +141,34 @@ public class GmailBackup {
     if (this.zip) {
       writeZip(f, message);
     }
+    else if (this.gzip) {
+      writeGzip(f, message);
+    }
     else {
       writeFile(f, message);
     }
     return f;
   }
 
+  private void writeGzip(File f, Message message) throws IOException, MessagingException {
+    try (GZIPOutputStream zos = new GZIPOutputStream(new FileOutputStream(f))) {
+      message.writeTo(zos);
+    }
+  }
+  
   private void writeZip(File f, Message message) throws IOException, MessagingException {
-    ZipOutputStream zos = null;
-    try {
-      zos = new ZipOutputStream(new FileOutputStream(f));
+    try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(f))) {
       ZipEntry zipEntry = new ZipEntry(f.getName());
       zos.putNextEntry(zipEntry);
       message.writeTo(zos);
       zos.closeEntry();
     }
-    finally {
-      close(zos);
-    }
   }
   
   private void writeFile(File f, Message message) throws IOException, MessagingException {
-    BufferedOutputStream os = null;
-    try {
-      os = new BufferedOutputStream(new FileOutputStream(f));
+    try (BufferedOutputStream os = new BufferedOutputStream(new FileOutputStream(f))) {
       message.writeTo(os);
       os.flush();
-    }
-    finally {
-      close(os);
     }
   }
 
@@ -195,6 +199,9 @@ public class GmailBackup {
     sb.append(".mail");
     if (this.zip) {
       sb.append(".zip");
+    }
+    else if (this.gzip) {
+      sb.append(".gz");
     }
     
     File file = new File(folder, sb.toString());
