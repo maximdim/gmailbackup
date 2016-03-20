@@ -3,7 +3,6 @@ package com.maximdim.gmailbackup;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.Closeable;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
@@ -245,13 +244,13 @@ public class GmailBackup {
   private Map<String, Date> loadTimestamp(File f, Date defaultDate) {
     Map<String, Date> result = new HashMap<String, Date>();
     if (f.exists() && f.canRead()) {
-      @SuppressWarnings("resource")
-      BufferedReader br = null;
-      try {
-        br = new BufferedReader(new FileReader(f));
+      try (BufferedReader br = new BufferedReader(new FileReader(f))) {
         String line = null;
         SimpleDateFormat df = new SimpleDateFormat(USER_TIMESTAMP_FORMAT);
         while((line = br.readLine()) != null) {
+          if (line.trim().length() == 0) {
+            continue;
+          }
           String[] ss = line.split("=");
           if (ss.length != 2) {
             System.err.println("Don't understand line ["+line+"]");
@@ -269,9 +268,6 @@ public class GmailBackup {
       catch (IOException e) {
         System.err.println("Error loading user timestamps from "+f.getAbsolutePath()+": "+e.getMessage());
       }
-      finally {
-        close(br);
-      }
     }
     // fill with defaults
     for(String user: this.users) {
@@ -284,17 +280,6 @@ public class GmailBackup {
       System.out.println(me.getKey()+"="+me.getValue());
     }
     return result;
-  }
-  
-  private static void close(Closeable c) {
-    if (c != null) {
-      try {
-        c.close();
-      }
-      catch (IOException e) {
-        // ignore
-      }
-    }
   }
   
   static class UserMessagesIterator implements Iterator<Message> {
@@ -337,21 +322,27 @@ public class GmailBackup {
       List<Message> result = new ArrayList<Message>();
       for(Message m: fetch(folder, fetchFrom)) {
         try {
-          if (m.getReceivedDate() != null && m.getReceivedDate().after(fetchFrom)) {
-            Address[] addresses = m.getFrom();
-            if (addresses.length == 0) {
-              System.out.println("Ignoring email with empty from");
+          if (m.getReceivedDate() == null) {
+            System.out.println("Message received date is null: "+m.getSubject());
+            continue;
+          }
+          if (m.getReceivedDate().before(fetchFrom)) {
+            //System.out.println("Message date "+m.getReceivedDate()+" is before "+fetchFrom);
+            continue;
+          }
+          Address[] addresses = m.getFrom();
+          if (addresses.length == 0) {
+            System.out.println("Ignoring email with empty from");
+            continue;
+          }
+          String from = addresses[0].toString();
+          for(String ignore: ignoreFrom) {
+            if (from.toLowerCase().contains(ignore)) {
+              System.out.println("Ignoring email from "+from);
               continue;
             }
-            String from = addresses[0].toString();
-            for(String ignore: ignoreFrom) {
-              if (from.toLowerCase().contains(ignore)) {
-                System.out.println("Ignoring email from "+from);
-                continue;
-              }
-            }
-            result.add(m);
           }
+          result.add(m);
         }
         catch (MessageRemovedException e) {
           System.out.println("Message already removed: "+e.getMessage());
@@ -396,7 +387,7 @@ public class GmailBackup {
         public int compare(Message m1, Message m2) {
           try {
             @SuppressWarnings("deprecation")
-            Date old = new Date(200,1,1);
+            Date old = new Date(2000,1,1);
             Date d1 = m1.getSentDate() != null ? m1.getSentDate() : old;
             Date d2 = m2.getSentDate() != null ? m2.getSentDate() : old;
             return d1.compareTo(d2);
@@ -413,10 +404,7 @@ public class GmailBackup {
   }
   
   private void saveTimestamp(Map<String, Date> data, File f) {
-    @SuppressWarnings("resource")
-    BufferedWriter bw = null;
-    try {
-      bw = new BufferedWriter(new FileWriter(f));
+    try (BufferedWriter bw = new BufferedWriter(new FileWriter(f))) {
       SimpleDateFormat df = new SimpleDateFormat(USER_TIMESTAMP_FORMAT);
       for(Map.Entry<String, Date> me: data.entrySet()) {
         String line = me.getKey()+"="+df.format(me.getValue());
@@ -427,9 +415,6 @@ public class GmailBackup {
     }
     catch (IOException e) {
       System.err.println("Error saving user timestamps to "+f.getAbsolutePath()+": "+e.getMessage());
-    }
-    finally {
-      close(bw);
     }
   }
   
@@ -446,14 +431,8 @@ public class GmailBackup {
     System.out.println("Reading properties from "+propFile.getAbsolutePath());
     Properties p = new Properties();
     
-    @SuppressWarnings("resource")
-    FileReader r = null;
-    try {
-      r = new FileReader(propFile);
+    try (FileReader r = new FileReader(propFile)) {
       p.load(r);
-    }
-    finally {
-      close(r);
     }
     System.out.println(p);
     new GmailBackup(p).backup();
