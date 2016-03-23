@@ -133,9 +133,11 @@ public class GmailBackup {
   
   private File saveMessage(String user, Message message) throws Exception {
     File f = generateFileName(user, message);
-    f.getParentFile().mkdirs();
     if (f.exists()) {
       System.out.println("File already exist: "+f.getAbsolutePath());
+    }
+    else {
+      f.getParentFile().mkdirs();
     }
     if (this.zip) {
       writeZip(f, message);
@@ -327,7 +329,7 @@ public class GmailBackup {
             continue;
           }
           if (m.getReceivedDate().before(fetchFrom)) {
-            System.out.println("Message date "+m.getReceivedDate()+" is before "+fetchFrom);
+            //System.out.println("Message date "+m.getReceivedDate()+" is before "+fetchFrom);
             continue;
           }
           Address[] addresses = m.getFrom();
