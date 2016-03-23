@@ -327,7 +327,7 @@ public class GmailBackup {
             continue;
           }
           if (m.getReceivedDate().before(fetchFrom)) {
-            //System.out.println("Message date "+m.getReceivedDate()+" is before "+fetchFrom);
+            System.out.println("Message date "+m.getReceivedDate()+" is before "+fetchFrom);
             continue;
           }
           Address[] addresses = m.getFrom();
@@ -360,7 +360,10 @@ public class GmailBackup {
     }
     
     private Message[] fetch(IMAPFolder folder, Date fetchFrom) throws MessagingException {
-      SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GE, fetchFrom);
+      // Gmail seems to be returning strange result with ComparisonTerm.GE
+      SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GT, fetchFrom);
+      System.out.println("Setting fetchFrom to "+fetchFrom);
+      
       Date fetchTo = getDateDaysFrom(fetchFrom, this.fetchWindowDays);
       if (fetchTo.before(new Date())) {
         SearchTerm stTo = new ReceivedDateTerm(ComparisonTerm.LT, fetchTo);
@@ -370,6 +373,7 @@ public class GmailBackup {
       
       // IMAP search command disregards time, only date is used
       Message[] messages = folder.search(st);
+      //Message[] messages = folder.getMessages();
       System.out.println("Search returned: " + messages.length);
       
       if (messages.length == 0 && fetchTo.before(new Date())) { // our search window could be too much in the past, retry
