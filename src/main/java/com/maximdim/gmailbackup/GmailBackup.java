@@ -16,10 +16,12 @@ import java.util.Calendar;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -45,6 +47,7 @@ import com.sun.mail.util.MessageRemovedIOException;
 
 public class GmailBackup {
   private static final String USER_TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ssZ";
+  private static final String HEADER_MESSAGE_ID = "Message-ID";
   private final String serviceAccountId;
   private final File serviceAccountPkFile;
   private final String domain;
@@ -53,7 +56,7 @@ public class GmailBackup {
   private final Map<String, Date> userTimestamps;
 
   private final List<String> users;
-  private final List<String> ignoreFrom;
+  private final Set<String> ignoreFrom;
   private int maxPerRun;
   private boolean zip;
   private boolean gzip;
@@ -69,7 +72,7 @@ public class GmailBackup {
     this.domain = p.getProperty("domain");
     this.timestampFile = new File(p.getProperty("timestampFile"));
     this.users = Arrays.asList(p.getProperty("users").split(","));
-    this.ignoreFrom = Arrays.asList(p.getProperty("ignoreFrom").split(","));
+    this.ignoreFrom = new HashSet<>(Arrays.asList(p.getProperty("ignoreFrom").split(",")));
     this.maxPerRun = Integer.parseInt(p.getProperty("maxPerRun", "10000"));
     this.zip = Boolean.parseBoolean(p.getProperty("zip"));
     this.gzip = Boolean.parseBoolean(p.getProperty("gzip"));
@@ -289,10 +292,11 @@ public class GmailBackup {
     private final List<Message> messages;
     private int index;
 
-    public UserMessagesIterator(IMAPStore store, Date fetchFrom, List<String> ignoreFrom, int max, int fetchWindowDays) throws MessagingException {
+    public UserMessagesIterator(IMAPStore store, Date fetchFrom, Set<String> ignoreFrom, int max, int fetchWindowDays) throws MessagingException {
       this.max = max;
       this.fetchWindowDays = fetchWindowDays;
-      this.messages = getMessages(store, fetchFrom, ignoreFrom);
+      Set<String> drafts = getDraftMessageIds(store);
+      this.messages = getMessages(store, fetchFrom, ignoreFrom, drafts);
     }
 
     public String getStats() {
@@ -314,16 +318,44 @@ public class GmailBackup {
       throw new UnsupportedOperationException();
     }
 
-    private List<Message> getMessages(IMAPStore store, Date fetchFrom, List<String> ignoreFrom) throws MessagingException {
+    private Set<String> getDraftMessageIds(IMAPStore store) throws MessagingException {
+      IMAPFolder folder = (IMAPFolder) store.getFolder("[Gmail]/Drafts");
+      folder.open(Folder.READ_ONLY);
+      System.out.println("imap folder open OK: " + folder.getName());
+      int totalMessages = folder.getMessageCount();
+      System.out.println("Total messages: " + totalMessages);
+
+      Set<String> result = new HashSet<>();
+      for (Message m : folder.getMessages()) {
+        result.addAll(Arrays.asList(m.getHeader(HEADER_MESSAGE_ID)));
+      }
+      folder.close(false);
+      return result;
+    }
+
+    private boolean isDraft(Message m, Set<String> drafts) throws MessagingException {
+      for (String mid: m.getHeader(HEADER_MESSAGE_ID)) {
+        if (drafts.contains(mid)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    private List<Message> getMessages(IMAPStore store, Date fetchFrom, Set<String> ignoreFrom, Set<String> drafts) throws MessagingException {
       IMAPFolder folder = (IMAPFolder)store.getFolder("[Gmail]/All Mail");
       folder.open(Folder.READ_ONLY);
-      System.out.println("imap folder open OK");
+      System.out.println("imap folder open OK: " + folder.getName());
       int totalMessages = folder.getMessageCount();
       System.out.println("Total messages: " + totalMessages);
 
       List<Message> result = new ArrayList<Message>();
       for(Message m: fetch(folder, fetchFrom)) {
         try {
+          if (isDraft(m, drafts)) {
+            System.out.println("Ignoring draft message: "+m.getSubject());
+            continue;
+          }
           if (m.getReceivedDate() == null) {
             System.out.println("Message received date is null: "+m.getSubject());
             continue;
@@ -338,11 +370,9 @@ public class GmailBackup {
             continue;
           }
           String from = addresses[0].toString();
-          for(String ignore: ignoreFrom) {
-            if (from.toLowerCase().contains(ignore)) {
-              System.out.println("Ignoring email from "+from);
-              continue;
-            }
+          if (ignoreFrom.contains(from.toLowerCase())) {
+            System.out.println("Ignoring email from "+from);
+            continue;
           }
           result.add(m);
         }
