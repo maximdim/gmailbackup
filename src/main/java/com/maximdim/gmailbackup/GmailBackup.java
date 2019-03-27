@@ -334,9 +334,12 @@ public class GmailBackup {
     }
 
     private boolean isDraft(Message m, Set<String> drafts) throws MessagingException {
-      for (String mid: m.getHeader(HEADER_MESSAGE_ID)) {
-        if (drafts.contains(mid)) {
-          return true;
+      String[] headers = m.getHeader(HEADER_MESSAGE_ID);
+      if (headers != null) {
+        for (String mid : headers) {
+          if (drafts.contains(mid)) {
+            return true;
+          }
         }
       }
       return false;
