@@ -327,7 +327,10 @@ public class GmailBackup {
 
       Set<String> result = new HashSet<>();
       for (Message m : folder.getMessages()) {
-        result.addAll(Arrays.asList(m.getHeader(HEADER_MESSAGE_ID)));
+        String[] header = m.getHeader(HEADER_MESSAGE_ID);
+        if (header != null) {
+          result.addAll(Arrays.asList(header));
+        }
       }
       folder.close(false);
       return result;
