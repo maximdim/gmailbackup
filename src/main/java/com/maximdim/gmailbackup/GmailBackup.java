@@ -74,13 +74,13 @@ public class GmailBackup {
     this.timestampFile = new File(p.getProperty("timestampFile"));
     this.users = Arrays.asList(p.getProperty("users").split(","));
     this.ignoreFrom = new HashSet<>(Arrays.asList(p.getProperty("ignoreFrom").split(",")));
-    this.maxPerRun = Integer.parseInt(p.getProperty("maxPerRun", "10000"));
+    this.maxPerRun = Integer.parseInt(p.getProperty("maxPerRun", "1000"));
     this.zip = Boolean.parseBoolean(p.getProperty("zip"));
     this.gzip = Boolean.parseBoolean(p.getProperty("gzip"));
     if (this.zip && this.gzip) {
       throw new IllegalStateException("Both zip and gzip compression specified. Choose one");
     }
-    this.fetchWindowDays = Integer.parseInt(p.getProperty("fetchWindowDays", "90"));
+    this.fetchWindowDays = Integer.parseInt(p.getProperty("fetchWindowDays", "30"));
     
     Date oldestDate = getDate(p.getProperty("oldestDate", "2012/01/01"), "yyyy-MM-dd");
     this.userTimestamps = loadTimestamp(this.timestampFile, oldestDate);
@@ -101,7 +101,7 @@ public class GmailBackup {
           continue;
         }
         
-        UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom, this.maxPerRun, this.fetchWindowDays);
+        UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom, this.fetchWindowDays);
         int count = 0;
         while(iterator.hasNext() && count < this.maxPerRun) {
           try {
@@ -294,12 +294,11 @@ public class GmailBackup {
   }
   
   static class UserMessagesIterator implements Iterator<Message> {
-    private final int max, fetchWindowDays;
+    private final int fetchWindowDays;
     private final List<Message> messages;
     private int index;
 
-    public UserMessagesIterator(IMAPStore store, Date fetchFrom, Set<String> ignoreFrom, int max, int fetchWindowDays) throws MessagingException {
-      this.max = max;
+    public UserMessagesIterator(IMAPStore store, Date fetchFrom, Set<String> ignoreFrom, int fetchWindowDays) throws MessagingException {
       this.fetchWindowDays = fetchWindowDays;
       Set<String> drafts = getDraftMessageIds(store);
       this.messages = getMessages(store, fetchFrom, ignoreFrom, drafts);
