@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -444,12 +445,18 @@ public class GmailBackup {
     }
     
   }
-  
+
   private void saveTimestamp(Map<String, Date> data, File f) {
+    // sort file by date
+    Map<Date, String> sortedData = new TreeMap<>();
+    for (Map.Entry<String, Date> me: data.entrySet()) {
+      sortedData.put(me.getValue(), me.getKey());
+    }
+
     try (BufferedWriter bw = new BufferedWriter(new FileWriter(f))) {
       SimpleDateFormat df = new SimpleDateFormat(USER_TIMESTAMP_FORMAT);
-      for(Map.Entry<String, Date> me: data.entrySet()) {
-        String line = me.getKey()+"="+df.format(me.getValue());
+      for(Map.Entry<Date, String> me: sortedData.entrySet()) {
+        String line = me.getValue()+"="+df.format(me.getKey());
         bw.write(line + "\n");
         System.out.println(line);
       }
