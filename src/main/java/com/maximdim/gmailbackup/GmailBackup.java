@@ -93,7 +93,7 @@ public class GmailBackup {
 
     for(String user: this.users) {
       try {
-        System.out.println("Backing up ["+user+"]");
+        System.out.println("### Backing up ["+user+"]");
         String email = user + "@" + this.domain;
         IMAPStore store = getStore(email);
         if (store == null) {
@@ -132,7 +132,7 @@ public class GmailBackup {
         e.printStackTrace(System.err);
       }
     }
-    System.out.println("Done");
+    System.out.println("Done\n");
   }
   
   private File saveMessage(String user, Message message) throws Exception {
