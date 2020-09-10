@@ -83,7 +83,7 @@ public class GmailBackup {
     this.fetchWindowDays = Integer.parseInt(p.getProperty("fetchWindowDays", "90"));
     
     Date oldestDate = getDate(p.getProperty("oldestDate", "2012/01/01"), "yyyy-MM-dd");
-    this.userTimestamps = loadTimestamp(this.timestampFile, oldestDate, this.users);
+    this.userTimestamps = loadTimestamp(this.timestampFile, oldestDate);
     
     this.dataDir = new File(p.getProperty("dataDir"));
   }
@@ -247,7 +247,7 @@ public class GmailBackup {
   /**
    * load saved timestamp file (if available)
    */
-  private Map<String, Date> loadTimestamp(File f, Date defaultDate, List<String> users) {
+  private Map<String, Date> loadTimestamp(File f, Date defaultDate) {
     Map<String, Date> result = new HashMap<String, Date>();
     if (f.exists() && f.canRead()) {
       try (BufferedReader br = new BufferedReader(new FileReader(f))) {
@@ -264,7 +264,7 @@ public class GmailBackup {
           }
           try {
             String user = ss[0];
-            if (users.contains(user)) { // filter out users that are no longer being fetched
+            if (this.users.contains(user)) { // filter out users that are no longer being fetched
               result.put(user, df.parse(ss[1]));
             }
           } 
