@@ -106,10 +106,14 @@ public class GmailBackup {
         while(iterator.hasNext() && count < this.maxPerRun) {
           try {
             Message message = iterator.next();
-            File f = saveMessage(user, message);
+            File f = generateFileName(user, message);
+            boolean fileExists = f.exists();
+            if (!fileExists) {
+              saveMessage(message, f);
+            }
             // update stats
             this.userTimestamps.put(user, message.getReceivedDate());
-            System.out.println(iterator.getStats()+" "+f.getAbsolutePath());
+            System.out.println(iterator.getStats() + " " + f.getAbsolutePath() + (fileExists ? ": EXISTS" : ""));
             count++;
             if (count % 100 == 0) {
               saveTimestamp(this.userTimestamps, this.timestampFile);
@@ -134,13 +138,9 @@ public class GmailBackup {
     }
     System.out.println("Done\n");
   }
-  
-  private File saveMessage(String user, Message message) throws Exception {
-    File f = generateFileName(user, message);
-    if (f.exists()) {
-      System.out.println("File already exist: "+f.getAbsolutePath());
-    }
-    else {
+
+  private File saveMessage(Message message, File f) throws Exception {
+    if (!f.getParentFile().exists()) {
       f.getParentFile().mkdirs();
     }
     if (this.zip) {
