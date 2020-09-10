@@ -284,6 +284,7 @@ public class GmailBackup {
       }
     }
     // log
+    System.out.println("Loading timestamps");
     for(Map.Entry<String, Date> me: result.entrySet()) {
       System.out.println(me.getKey()+"="+me.getValue());
     }
@@ -452,6 +453,8 @@ public class GmailBackup {
   }
 
   private void saveTimestamp(Map<String, Date> data, File f) {
+    System.out.println("Saving timestamps");
+
     // sort file by date
     Map<Date, String> sortedData = new TreeMap<>();
     for (Map.Entry<String, Date> me: data.entrySet()) {
@@ -463,7 +466,7 @@ public class GmailBackup {
       for(Map.Entry<Date, String> me: sortedData.entrySet()) {
         String line = me.getValue()+"="+df.format(me.getKey());
         bw.write(line + "\n");
-        //System.out.println(line);
+        System.out.println(line);
       }
       bw.flush();
     }
