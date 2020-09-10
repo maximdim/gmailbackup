@@ -18,6 +18,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -248,7 +249,7 @@ public class GmailBackup {
    * load saved timestamp file (if available)
    */
   private Map<String, Date> loadTimestamp(File f, Date defaultDate) {
-    Map<String, Date> result = new HashMap<String, Date>();
+    Map<String, Date> result = new LinkedHashMap<>();
     if (f.exists() && f.canRead()) {
       try (BufferedReader br = new BufferedReader(new FileReader(f))) {
         String line = null;
@@ -456,16 +457,10 @@ public class GmailBackup {
   private void saveTimestamp(Map<String, Date> data, File f) {
     System.out.println("Saving timestamps: " + data.size());
 
-    // sort file by date
-    Map<Date, String> sortedData = new TreeMap<>();
-    for (Map.Entry<String, Date> me: data.entrySet()) {
-      sortedData.put(me.getValue(), me.getKey());
-    }
-
     try (BufferedWriter bw = new BufferedWriter(new FileWriter(f))) {
       SimpleDateFormat df = new SimpleDateFormat(USER_TIMESTAMP_FORMAT);
-      for(Map.Entry<Date, String> me: sortedData.entrySet()) {
-        String line = me.getValue()+"="+df.format(me.getKey());
+      for(Map.Entry<String, Date> me: data.entrySet()) {
+        String line = me.getKey()+"="+df.format(me.getValue());
         bw.write(line + "\n");
         System.out.println(line);
       }
