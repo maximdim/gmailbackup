@@ -267,7 +267,6 @@ public class GmailBackup {
           } 
           catch (ParseException e) {
             System.err.println("Unable to parse date ["+ss[1]+"]");
-            continue;
           }
         }
       } 
@@ -458,7 +457,7 @@ public class GmailBackup {
       for(Map.Entry<Date, String> me: sortedData.entrySet()) {
         String line = me.getValue()+"="+df.format(me.getKey());
         bw.write(line + "\n");
-        System.out.println(line);
+        //System.out.println(line);
       }
       bw.flush();
     }
