@@ -326,7 +326,7 @@ public class GmailBackup {
       folder.open(Folder.READ_ONLY);
       System.out.println("imap folder open OK: " + folder.getName());
       int totalMessages = folder.getMessageCount();
-      System.out.println("Total messages: " + totalMessages);
+      System.out.println("Draft messages: " + totalMessages);
 
       Set<String> result = new HashSet<>();
       for (Message m : folder.getMessages()) {
@@ -336,16 +336,19 @@ public class GmailBackup {
         }
       }
       folder.close(false);
+      System.out.println("Draft ids: " + result.size());
       return result;
     }
 
     private boolean isDraft(Message m, Set<String> drafts) throws MessagingException {
       String[] headers = m.getHeader(HEADER_MESSAGE_ID);
-      if (headers != null) {
-        for (String mid : headers) {
-          if (drafts.contains(mid)) {
-            return true;
-          }
+      if (headers == null) {
+        System.out.println("No id header in message");
+        return false;
+      }
+      for (String mid : headers) {
+        if (drafts.contains(mid)) {
+          return true;
         }
       }
       return false;
@@ -380,7 +383,7 @@ public class GmailBackup {
           }
           String from = addresses[0].toString();
           if (ignoreFrom.contains(from.toLowerCase())) {
-            System.out.println("Ignoring email from "+from);
+            //System.out.println("Ignoring email from "+from);
             continue;
           }
           result.add(m);
