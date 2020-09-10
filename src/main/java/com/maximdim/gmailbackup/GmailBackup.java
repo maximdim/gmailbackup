@@ -266,6 +266,8 @@ public class GmailBackup {
             String user = ss[0];
             if (this.users.contains(user)) { // filter out users that are no longer being fetched
               result.put(user, df.parse(ss[1]));
+            } else {
+              System.out.println("Ignore timestamp for user " + user);
             }
           } 
           catch (ParseException e) {
