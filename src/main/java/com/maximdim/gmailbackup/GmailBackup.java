@@ -91,12 +91,13 @@ public class GmailBackup {
 
   private void backup() throws Exception {
     OAuth2Authenticator.initialize();
+    IMAPStore store = null;
 
     for(String user: this.users) {
       try {
         System.out.println("### Backing up ["+user+"]");
         String email = user + "@" + this.domain;
-        IMAPStore store = getStore(email);
+        store = getStore(email);
         if (store == null) {
           System.out.println("Store is null, skip");
           continue;
@@ -135,6 +136,11 @@ public class GmailBackup {
       catch (Exception e) {
         System.err.println("Error getting mail for user ["+user+"]: "+e.getClass().getSimpleName()+": "+e.getMessage());
         e.printStackTrace(System.err);
+      }
+      finally {
+        if (store != null) {
+          store.close();
+        }
       }
     }
     System.out.println("Done\n");
