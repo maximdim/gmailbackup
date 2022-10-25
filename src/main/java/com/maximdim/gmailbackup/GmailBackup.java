@@ -478,7 +478,7 @@ public class GmailBackup {
   private static Date roundDateToPreviousDay(Date d) {
     Calendar cal = Calendar.getInstance();
     cal.setTime(d);
-    cal.add(Calendar.DAY_OF_YEAR, -2); // previous day, 2 just in case
+    cal.add(Calendar.DAY_OF_YEAR, -1); // previous day
     cal.set(Calendar.HOUR_OF_DAY, 0);
     cal.set(Calendar.MINUTE, 0);
     cal.set(Calendar.SECOND, 0);
