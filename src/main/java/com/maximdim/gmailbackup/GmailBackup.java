@@ -15,7 +15,6 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Comparator;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -23,7 +22,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -48,7 +46,7 @@ import com.sun.mail.util.FolderClosedIOException;
 import com.sun.mail.util.MessageRemovedIOException;
 
 public class GmailBackup {
-  private static final String USER_TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ssZ";
+  private static final String USER_TIMESTAMP_FORMAT = "yyyy-MM-dd";
   private static final String HEADER_MESSAGE_ID = "Message-ID";
   private final String serviceAccountId;
   private final File serviceAccountPkFile;
@@ -114,7 +112,7 @@ public class GmailBackup {
               saveMessage(message, f);
             }
             // update stats
-            this.userTimestamps.put(user, message.getReceivedDate());
+            this.userTimestamps.put(user, roundDateToPreviousDay(message.getReceivedDate()));
             System.out.println(iterator.getStats() + " " + f.getAbsolutePath() + (fileExists ? ": EXISTS" : ""));
             count++;
             if (count % 100 == 0) {
@@ -476,7 +474,18 @@ public class GmailBackup {
       System.err.println("Error saving user timestamps to "+f.getAbsolutePath()+": "+e.getMessage());
     }
   }
-  
+
+  private static Date roundDateToPreviousDay(Date d) {
+    Calendar cal = Calendar.getInstance();
+    cal.setTime(d);
+    cal.add(Calendar.DAY_OF_YEAR, -2); // previous day, 2 just in case
+    cal.set(Calendar.HOUR_OF_DAY, 0);
+    cal.set(Calendar.MINUTE, 0);
+    cal.set(Calendar.SECOND, 0);
+    cal.set(Calendar.MILLISECOND, 0);
+    return new Date(cal.getTimeInMillis());
+  }
+
   public static void main(String[] args) throws Exception {
     if (args.length != 1) {
       System.err.println("Usage: "+GmailBackup.class.getSimpleName()+" <properties file>");
