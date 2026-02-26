@@ -57,10 +57,10 @@ public class GmailBackup {
 
   private final List<String> users;
   private final Set<String> ignoreFrom;
-  private int maxPerRun;
-  private boolean zip;
-  private boolean gzip;
-  private int fetchWindowDays;
+  private final int maxPerRun;
+  private final boolean zip;
+  private final boolean gzip;
+  private final int fetchWindowDays;
   
   // storage format:
   // dataDir/domain/year/month/day/user_timestamp.mail
@@ -85,6 +85,17 @@ public class GmailBackup {
     this.userTimestamps = loadTimestamp(this.timestampFile, oldestDate);
     
     this.dataDir = new File(p.getProperty("dataDir"));
+    // log all properties
+    System.out.println("Configuration:");
+    System.out.println("serviceAccountId: " + this.serviceAccountId);
+    System.out.println("serviceAccountPkFile: " + this.serviceAccountPkFile.getAbsolutePath());
+    System.out.println("domain: " + this.domain);
+    System.out.println("timestampFile: " + this.timestampFile.getAbsolutePath());
+    System.out.println("users: " + this.users);
+    System.out.println("ignoreFrom: " + this.ignoreFrom);
+    System.out.println("maxPerRun: " + this.maxPerRun);
+    System.out.println("zip: " + this.zip);
+    System.out.println("gzip: " + this.gzip);
   }
 
   private void backup() throws Exception {
@@ -101,7 +112,7 @@ public class GmailBackup {
           continue;
         }
         
-        UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user), this.ignoreFrom, this.fetchWindowDays);
+        UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user));
         int count = 0;
         while(iterator.hasNext() && count < this.maxPerRun) {
           try {
@@ -213,15 +224,14 @@ public class GmailBackup {
     else if (this.gzip) {
       sb.append(".gz");
     }
-    
-    File file = new File(folder, sb.toString());
-    return file;
+
+    return new File(folder, sb.toString());
   }
   
   private String getHash(Message m) throws MessagingException {
     String from = m.getFrom() != null && m.getFrom().length > 0? m.getFrom()[0].toString() : "";
     String subject = m.getSubject() != null ? m.getSubject() : "";
-    String hash = DigestUtils.md5Hex(from+""+subject);
+    String hash = DigestUtils.md5Hex(from + subject);
     // no need to be super long - the hash part is there just to avoid (infrequent) name collisions
     return hash.substring(0, 5);
   }
@@ -259,7 +269,7 @@ public class GmailBackup {
         String line = null;
         SimpleDateFormat df = new SimpleDateFormat(USER_TIMESTAMP_FORMAT);
         while((line = br.readLine()) != null) {
-          if (line.trim().length() == 0) {
+          if (line.trim().isEmpty()) {
             continue;
           }
           String[] ss = line.split("=");
@@ -298,15 +308,13 @@ public class GmailBackup {
     return result;
   }
   
-  static class UserMessagesIterator implements Iterator<Message> {
-    private final int fetchWindowDays;
+  class UserMessagesIterator implements Iterator<Message> {
     private final List<Message> messages;
     private int index;
 
-    public UserMessagesIterator(IMAPStore store, Date fetchFrom, Set<String> ignoreFrom, int fetchWindowDays) throws MessagingException {
-      this.fetchWindowDays = fetchWindowDays;
+    public UserMessagesIterator(IMAPStore store, Date fetchFrom) throws MessagingException {
       Set<String> drafts = getDraftMessageIds(store);
-      this.messages = getMessages(store, fetchFrom, ignoreFrom, drafts);
+      this.messages = getMessages(store, fetchFrom, drafts);
     }
 
     public String getStats() {
@@ -361,7 +369,7 @@ public class GmailBackup {
       return false;
     }
 
-    private List<Message> getMessages(IMAPStore store, Date fetchFrom, Set<String> ignoreFrom, Set<String> drafts) throws MessagingException {
+    private List<Message> getMessages(IMAPStore store, Date fetchFrom, Set<String> drafts) throws MessagingException {
       IMAPFolder folder = (IMAPFolder)store.getFolder("[Gmail]/All Mail");
       folder.open(Folder.READ_ONLY);
       System.out.println("imap folder open OK: " + folder.getName());
@@ -383,17 +391,9 @@ public class GmailBackup {
             //System.out.println("Message date "+m.getReceivedDate()+" is before "+fetchFrom);
             continue;
           }
-          Address[] addresses = m.getFrom();
-          if (addresses.length == 0) {
-            System.out.println("Ignoring email with empty from");
-            continue;
+          if (shouldInclude(m.getFrom(), m.getAllRecipients())) {
+            result.add(m);
           }
-          String from = addresses[0].toString();
-          if (ignoreFrom.contains(from.toLowerCase())) {
-            //System.out.println("Ignoring email from "+from);
-            continue;
-          }
-          result.add(m);
         }
         catch (MessageRemovedException e) {
           System.out.println("Message already removed: "+e.getMessage());
@@ -403,10 +403,34 @@ public class GmailBackup {
       return result;
     }
 
-    private Date getDateDaysFrom(Date from, int days) {
+    boolean shouldInclude(Address[] from, Address[] to) {
+      if (from != null) {
+        for (Address address : from) {
+          String addressString = address.toString().toLowerCase();
+          if (ignoreFrom.contains(addressString)) {
+            System.out.println("Ignoring email from " + address);
+            return false;
+          }
+        }
+      }
+
+      if (to != null) {
+        for (Address address : to) {
+          String addressString = address.toString().toLowerCase();
+          if (ignoreFrom.contains(addressString)) {
+            System.out.println("Ignoring email to " + address);
+            return false;
+          }
+        }
+      }
+
+      return true;
+    }
+
+    private Date getDateDaysFrom(Date from) {
       Calendar c = Calendar.getInstance();
       c.setTime(from);
-      c.add(Calendar.DAY_OF_YEAR, days);
+      c.add(Calendar.DAY_OF_YEAR, fetchWindowDays);
       return c.getTime();
     }
     
@@ -415,7 +439,7 @@ public class GmailBackup {
       SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GT, fetchFrom);
       System.out.println("Setting fetchFrom to "+fetchFrom);
       
-      Date fetchTo = getDateDaysFrom(fetchFrom, this.fetchWindowDays);
+      Date fetchTo = getDateDaysFrom(fetchFrom);
       if (fetchTo.before(new Date())) {
         SearchTerm stTo = new ReceivedDateTerm(ComparisonTerm.LT, fetchTo);
         st = new AndTerm(st, stTo);
