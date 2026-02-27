@@ -56,7 +56,7 @@ public class GmailBackup {
   private final Map<String, Date> userTimestamps;
 
   private final List<String> users;
-  private final Set<String> ignoreFrom;
+  private final List<String> ignoreFrom;
   private final int maxPerRun;
   private final boolean zip;
   private final boolean gzip;
@@ -72,7 +72,7 @@ public class GmailBackup {
     this.domain = p.getProperty("domain");
     this.timestampFile = new File(p.getProperty("timestampFile"));
     this.users = Arrays.asList(p.getProperty("users").split(","));
-    this.ignoreFrom = new HashSet<>(Arrays.asList(p.getProperty("ignoreFrom").split(",")));
+    this.ignoreFrom = Arrays.asList(p.getProperty("ignoreFrom").split(","));
     this.maxPerRun = Integer.parseInt(p.getProperty("maxPerRun", "1000"));
     this.zip = Boolean.parseBoolean(p.getProperty("zip"));
     this.gzip = Boolean.parseBoolean(p.getProperty("gzip"));
@@ -404,26 +404,26 @@ public class GmailBackup {
     }
 
     boolean shouldInclude(Address[] from, Address[] to) {
-      if (from != null) {
-        for (Address address : from) {
-          String addressString = address.toString().toLowerCase();
-          if (ignoreFrom.contains(addressString)) {
-            System.out.println("Ignoring email from " + address);
+      List<Address> candidates = new ArrayList<>();
+      if (from != null && from.length > 0) {
+        candidates.addAll(Arrays.asList(from));
+      }
+      if (to != null && to.length > 0) {
+        candidates.addAll(Arrays.asList(to));
+      }
+      if (candidates.isEmpty()) {
+        return false;
+      }
+
+      for (String ignore: ignoreFrom) {
+        for (Address a : candidates) {
+          String addressString = a.toString().toLowerCase();
+          if (addressString.contains(ignore)) {
+            System.out.println("Ignoring email with address " + a);
             return false;
           }
         }
       }
-
-      if (to != null) {
-        for (Address address : to) {
-          String addressString = address.toString().toLowerCase();
-          if (ignoreFrom.contains(addressString)) {
-            System.out.println("Ignoring email to " + address);
-            return false;
-          }
-        }
-      }
-
       return true;
     }
 
