@@ -30,6 +30,7 @@ import javax.mail.FetchProfile;
 import javax.mail.Flags;
 import javax.mail.Folder;
 import javax.mail.Message;
+import javax.mail.Message.RecipientType;
 import javax.mail.MessageRemovedException;
 import javax.mail.MessagingException;
 import javax.mail.search.AndTerm;
@@ -353,7 +354,7 @@ public class GmailBackup {
             //System.out.println("Message date "+m.getReceivedDate()+" is before "+fetchFrom);
             continue;
           }
-          if (shouldInclude(m.getFrom(), m.getAllRecipients())) {
+          if (shouldInclude(m.getFrom(), getRecipients(m))) {
             result.add(m);
           }
         }
@@ -363,6 +364,22 @@ public class GmailBackup {
       }
       System.out.println("Result filtered to: " + result.size());
       return result;
+    }
+
+    /**
+     * TO/CC/BCC are served from the prefetched ENVELOPE. Message.getAllRecipients() also asks for
+     * NEWSGROUPS, which IMAPMessage doesn't override, so it falls back to reading the Newsgroups
+     * header - one FETCH round trip per message.
+     */
+    private Address[] getRecipients(Message m) throws MessagingException {
+      List<Address> result = new ArrayList<>();
+      for (RecipientType type : new RecipientType[] { RecipientType.TO, RecipientType.CC, RecipientType.BCC }) {
+        Address[] addresses = m.getRecipients(type);
+        if (addresses != null) {
+          result.addAll(Arrays.asList(addresses));
+        }
+      }
+      return result.toArray(new Address[result.size()]);
     }
 
     boolean shouldInclude(Address[] from, Address[] to) {
