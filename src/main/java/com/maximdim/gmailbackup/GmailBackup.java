@@ -132,10 +132,11 @@ public class GmailBackup {
             }
           }
           catch (MessageRemovedIOException e) {
-            System.err.println(e.getMessage());
+            System.err.println("Message removed, skipping: "+e);
           }
           catch(FolderClosedIOException e) {
-            System.err.println(e.getMessage());
+            // connection dropped by the server - next run resumes from the saved timestamp
+            System.err.println("Folder closed after "+count+" messages for ["+user+"], stopping: "+e);
             break;
           }
         }
