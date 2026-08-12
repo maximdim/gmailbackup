@@ -15,25 +15,26 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Comparator;
 import java.util.Date;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import javax.mail.Address;
 import javax.mail.FetchProfile;
+import javax.mail.Flags;
 import javax.mail.Folder;
 import javax.mail.Message;
 import javax.mail.MessageRemovedException;
 import javax.mail.MessagingException;
 import javax.mail.search.AndTerm;
 import javax.mail.search.ComparisonTerm;
+import javax.mail.search.FlagTerm;
 import javax.mail.search.ReceivedDateTerm;
 import javax.mail.search.SearchTerm;
 
@@ -47,7 +48,6 @@ import com.sun.mail.util.MessageRemovedIOException;
 
 public class GmailBackup {
   private static final String USER_TIMESTAMP_FORMAT = "yyyy-MM-dd";
-  private static final String HEADER_MESSAGE_ID = "Message-ID";
   private final String serviceAccountId;
   private final File serviceAccountPkFile;
   private final String domain;
@@ -313,8 +313,7 @@ public class GmailBackup {
     private int index;
 
     public UserMessagesIterator(IMAPStore store, Date fetchFrom) throws MessagingException {
-      Set<String> drafts = getDraftMessageIds(store);
-      this.messages = getMessages(store, fetchFrom, drafts);
+      this.messages = getMessages(store, fetchFrom);
     }
 
     public String getStats() {
@@ -336,40 +335,7 @@ public class GmailBackup {
       throw new UnsupportedOperationException();
     }
 
-    private Set<String> getDraftMessageIds(IMAPStore store) throws MessagingException {
-      IMAPFolder folder = (IMAPFolder) store.getFolder("[Gmail]/Drafts");
-      folder.open(Folder.READ_ONLY);
-      System.out.println("imap folder open OK: " + folder.getName());
-      int totalMessages = folder.getMessageCount();
-      System.out.println("Draft messages: " + totalMessages);
-
-      Set<String> result = new HashSet<>();
-      for (Message m : folder.getMessages()) {
-        String[] header = m.getHeader(HEADER_MESSAGE_ID);
-        if (header != null) {
-          result.addAll(Arrays.asList(header));
-        }
-      }
-      folder.close(false);
-      System.out.println("Draft ids: " + result.size());
-      return result;
-    }
-
-    private boolean isDraft(Message m, Set<String> drafts) throws MessagingException {
-      String[] headers = m.getHeader(HEADER_MESSAGE_ID);
-      if (headers == null) {
-        System.out.println("No id header in message");
-        return false;
-      }
-      for (String mid : headers) {
-        if (drafts.contains(mid)) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    private List<Message> getMessages(IMAPStore store, Date fetchFrom, Set<String> drafts) throws MessagingException {
+    private List<Message> getMessages(IMAPStore store, Date fetchFrom) throws MessagingException {
       IMAPFolder folder = (IMAPFolder)store.getFolder("[Gmail]/All Mail");
       folder.open(Folder.READ_ONLY);
       System.out.println("imap folder open OK: " + folder.getName());
@@ -379,10 +345,6 @@ public class GmailBackup {
       List<Message> result = new ArrayList<Message>();
       for(Message m: fetch(folder, fetchFrom)) {
         try {
-          if (isDraft(m, drafts)) {
-            System.out.println("Ignoring draft message: "+m.getSubject());
-            continue;
-          }
           if (m.getReceivedDate() == null) {
             System.out.println("Message received date is null: "+m.getSubject());
             continue;
@@ -438,7 +400,10 @@ public class GmailBackup {
       // Gmail seems to be returning strange result with ComparisonTerm.GE
       SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GT, fetchFrom);
       System.out.println("Setting fetchFrom to "+fetchFrom);
-      
+
+      // drafts live in All Mail too - let the server filter them out (UNDRAFT)
+      st = new AndTerm(st, new FlagTerm(new Flags(Flags.Flag.DRAFT), false));
+
       Date fetchTo = getDateDaysFrom(fetchFrom);
       if (fetchTo.before(new Date())) {
         SearchTerm stTo = new ReceivedDateTerm(ComparisonTerm.LT, fetchTo);
@@ -527,7 +492,14 @@ public class GmailBackup {
       p.load(r);
     }
     System.out.println(p);
+    long started = System.nanoTime();
     new GmailBackup(p).backup();
+    System.out.println("Total elapsed: "+formatElapsed(System.nanoTime() - started));
+  }
+
+  private static String formatElapsed(long nanos) {
+    long ms = TimeUnit.NANOSECONDS.toMillis(nanos);
+    return String.format("%d:%02d:%02d.%03d", ms/3600000, (ms/60000)%60, (ms/1000)%60, ms%1000);
   }
 
 }
