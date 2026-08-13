@@ -8,6 +8,8 @@ import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -131,9 +133,6 @@ public class GmailBackup {
             this.userTimestamps.put(user, message.getReceivedDate());
             System.out.println(iterator.getStats() + " " + f.getAbsolutePath() + (fileExists ? ": EXISTS" : ""));
             count++;
-            if (count % 100 == 0) {
-              saveTimestamp(this.userTimestamps, this.timestampFile);
-            }
           }
           catch (MessageRemovedIOException e) {
             System.err.println("Message removed, skipping: "+e);
@@ -481,20 +480,31 @@ public class GmailBackup {
     
   }
 
+  /**
+   * Written to a temp file and renamed into place. Opening the real file for writing would truncate
+   * it, and a crash at that point leaves it empty or half written - which reads back as "no
+   * timestamps", sending every user back to oldestDate and re-walking years of All Mail.
+   */
   private void saveTimestamp(Map<String, Date> data, File f) {
     System.out.println("Saving timestamps: " + data.size());
 
-    try (BufferedWriter bw = new BufferedWriter(new FileWriter(f))) {
-      SimpleDateFormat df = new SimpleDateFormat(USER_TIMESTAMP_FORMAT);
-      for(Map.Entry<String, Date> me: data.entrySet()) {
-        String line = me.getKey()+"="+df.format(me.getValue());
-        bw.write(line + "\n");
-        System.out.println(line);
+    File tmp = new File(f.getAbsoluteFile().getParentFile(), f.getName()+".tmp");
+    try {
+      try (BufferedWriter bw = new BufferedWriter(new FileWriter(tmp))) {
+        SimpleDateFormat df = new SimpleDateFormat(USER_TIMESTAMP_FORMAT);
+        for(Map.Entry<String, Date> me: data.entrySet()) {
+          String line = me.getKey()+"="+df.format(me.getValue());
+          bw.write(line + "\n");
+          System.out.println(line);
+        }
+        bw.flush();
       }
-      bw.flush();
+      // same directory, so the rename is atomic - readers see either the old file or the new one
+      Files.move(tmp.toPath(), f.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
     }
     catch (IOException e) {
       System.err.println("Error saving user timestamps to "+f.getAbsolutePath()+": "+e.getMessage());
+      tmp.delete();
     }
   }
 
