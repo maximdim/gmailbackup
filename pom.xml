@@ -6,7 +6,7 @@
   <description>Backup for Gmail in Google Apps for Domain using Service User account</description>
 
   <properties>
-    <java.version>1.7</java.version>
+    <java.version>1.8</java.version>
     <google-api.version>1.21.0</google-api.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
@@ -20,6 +20,11 @@
           <source>${java.version}</source>
           <target>${java.version}</target>
         </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -94,6 +99,12 @@
   </build>
   
   <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>com.maximdim</groupId>
       <artifactId>gmailoauth2</artifactId>
