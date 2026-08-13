@@ -26,6 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.junit.After;
 import org.junit.Assume;
 import org.junit.Before;
@@ -194,6 +195,49 @@ public class GmailBackupTest {
       dir.setWritable(true);
     }
     assertEquals("alice=2026-01-01T00:00:00\n", new String(Files.readAllBytes(ts.toPath()), UTF8));
+  }
+
+  // --- file name hash -------------------------------------------------------------------------
+
+  /**
+   * md5Hex replaced commons-codec DigestUtils.md5Hex(). The hash is part of every backed up file
+   * name, so any difference would re-save every message already on disk under a new name.
+   * commons-codec is kept at test scope purely so this comparison stays possible.
+   */
+  @Test
+  public void md5HexMatchesCommonsCodecExactly() {
+    String[] inputs = {
+        "",
+        "a",
+        "abc",
+        "maxim@maximdim.comHello there",
+        "\"Some One\" <some.one@example.com>Re: [ticket] update",
+        "Ünïcödé sübjéct with accents",
+        "日本語の件名", // non latin, to pin the UTF-8 encoding
+        "emoji 📧 subject",
+        "trailing space ",
+        "0000",
+    };
+    for (String in : inputs) {
+      assertEquals("hash differs for [" + in + "]",
+          DigestUtils.md5Hex(in), GmailBackup.md5Hex(in));
+    }
+  }
+
+  /** Every byte value matters: a sign extension slip would only show up on some inputs. */
+  @Test
+  public void md5HexMatchesCommonsCodecAcrossManyInputs() {
+    for (int i = 0; i < 2000; i++) {
+      String in = "from" + i + "@example.com" + (char) (i % 0xd800) + "subject " + i;
+      assertEquals(DigestUtils.md5Hex(in), GmailBackup.md5Hex(in));
+    }
+  }
+
+  @Test
+  public void md5HexIsLowercaseHexOfTheRightLength() {
+    String hash = GmailBackup.md5Hex("anything");
+    assertEquals(32, hash.length());
+    assertTrue("expected lowercase hex, got " + hash, hash.matches("[0-9a-f]{32}"));
   }
 
   // --- concurrency ----------------------------------------------------------------------------

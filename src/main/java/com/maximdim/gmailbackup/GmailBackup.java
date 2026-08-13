@@ -8,8 +8,11 @@ import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -44,8 +47,6 @@ import javax.mail.search.ComparisonTerm;
 import javax.mail.search.FlagTerm;
 import javax.mail.search.ReceivedDateTerm;
 import javax.mail.search.SearchTerm;
-
-import org.apache.commons.codec.digest.DigestUtils;
 
 import com.google.code.samples.oauth2.OAuth2Authenticator;
 import com.sun.mail.imap.IMAPFolder;
@@ -286,9 +287,30 @@ public class GmailBackup {
   private String getHash(Message m) throws MessagingException {
     String from = m.getFrom() != null && m.getFrom().length > 0? m.getFrom()[0].toString() : "";
     String subject = m.getSubject() != null ? m.getSubject() : "";
-    String hash = DigestUtils.md5Hex(from + subject);
+    String hash = md5Hex(from + subject);
     // no need to be super long - the hash part is there just to avoid (infrequent) name collisions
     return hash.substring(0, 5);
+  }
+
+  /**
+   * Lowercase hex MD5 of the UTF-8 bytes - byte for byte what commons-codec DigestUtils.md5Hex()
+   * produced. This ends up in file names, so it can never change: every message already on disk
+   * would be saved again under a new name.
+   */
+  static String md5Hex(String s) {
+    byte[] digest;
+    try {
+      digest = MessageDigest.getInstance("MD5").digest(s.getBytes(StandardCharsets.UTF_8));
+    }
+    catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("MD5 not available", e); // required of every JRE
+    }
+    StringBuilder sb = new StringBuilder(digest.length * 2);
+    for (byte b : digest) {
+      sb.append(Character.forDigit((b >> 4) & 0xf, 16));
+      sb.append(Character.forDigit(b & 0xf, 16));
+    }
+    return sb.toString();
   }
   
   private IMAPStore getStore(String user, String email) throws Exception {

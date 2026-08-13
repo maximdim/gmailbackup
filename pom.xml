@@ -7,7 +7,6 @@
 
   <properties>
     <java.version>1.8</java.version>
-    <google-api.version>1.21.0</google-api.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
@@ -110,10 +109,16 @@
       <artifactId>gmailoauth2</artifactId>
       <version>0.0.4-SNAPSHOT</version>
     </dependency>
+    <!--
+      No longer used at runtime - GmailBackup.md5Hex() replaced the single DigestUtils call. Kept
+      at test scope only so the tests can keep proving the two produce identical output: that hash
+      is part of every backed up file name, so it must never change.
+    -->
     <dependency>
       <groupId>commons-codec</groupId>
       <artifactId>commons-codec</artifactId>
       <version>1.15</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
   
