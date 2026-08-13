@@ -48,7 +48,9 @@ import com.sun.mail.util.FolderClosedIOException;
 import com.sun.mail.util.MessageRemovedIOException;
 
 public class GmailBackup {
-  private static final String USER_TIMESTAMP_FORMAT = "yyyy-MM-dd";
+  private static final String USER_TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ss";
+  // timestamps written before we started tracking the time of day
+  private static final String USER_TIMESTAMP_FORMAT_LEGACY = "yyyy-MM-dd";
   private final String serviceAccountId;
   private final File serviceAccountPkFile;
   private final String domain;
@@ -123,8 +125,10 @@ public class GmailBackup {
             if (!fileExists) {
               saveMessage(message, f);
             }
-            // update stats
-            this.userTimestamps.put(user, roundDateToPreviousDay(message.getReceivedDate()));
+            // update stats. Messages are processed in receivedDate order, so this is the exact
+            // point the next run has to resume from - no rounding, or a user with more than
+            // maxPerRun messages in a single day could never advance past that day.
+            this.userTimestamps.put(user, message.getReceivedDate());
             System.out.println(iterator.getStats() + " " + f.getAbsolutePath() + (fileExists ? ": EXISTS" : ""));
             count++;
             if (count % 100 == 0) {
@@ -270,6 +274,7 @@ public class GmailBackup {
       try (BufferedReader br = new BufferedReader(new FileReader(f))) {
         String line = null;
         SimpleDateFormat df = new SimpleDateFormat(USER_TIMESTAMP_FORMAT);
+        SimpleDateFormat dfLegacy = new SimpleDateFormat(USER_TIMESTAMP_FORMAT_LEGACY);
         while((line = br.readLine()) != null) {
           if (line.trim().isEmpty()) {
             continue;
@@ -282,7 +287,7 @@ public class GmailBackup {
           try {
             String user = ss[0];
             if (this.users.contains(user)) { // filter out users that are no longer being fetched
-              result.put(user, df.parse(ss[1]));
+              result.put(user, parseTimestamp(df, dfLegacy, ss[1]));
             } else {
               System.out.println("Ignore timestamp for user " + user);
             }
@@ -310,6 +315,15 @@ public class GmailBackup {
     return result;
   }
   
+  private static Date parseTimestamp(SimpleDateFormat df, SimpleDateFormat dfLegacy, String s) throws ParseException {
+    try {
+      return df.parse(s);
+    }
+    catch (ParseException e) {
+      return dfLegacy.parse(s);
+    }
+  }
+
   class UserMessagesIterator implements Iterator<Message> {
     private final List<Message> messages;
     private int index;
@@ -415,9 +429,12 @@ public class GmailBackup {
     }
     
     private Message[] fetch(IMAPFolder folder, Date fetchFrom) throws MessagingException {
+      // IMAP SEARCH disregards time and timezone, so the server side bound has to be a whole day
+      // earlier than the timestamp we resume from. getMessages() then applies the exact cutoff.
+      Date searchFrom = searchWindowStart(fetchFrom);
       // Gmail seems to be returning strange result with ComparisonTerm.GE
-      SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GT, fetchFrom);
-      System.out.println("Setting fetchFrom to "+fetchFrom);
+      SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GT, searchFrom);
+      System.out.println("Setting fetchFrom to "+fetchFrom+" (searching from "+searchFrom+")");
 
       // drafts live in All Mail too - let the server filter them out (UNDRAFT)
       st = new AndTerm(st, new FlagTerm(new Flags(Flags.Flag.DRAFT), false));
@@ -443,17 +460,16 @@ public class GmailBackup {
       fp.add(FetchProfile.Item.ENVELOPE);
       folder.fetch(messages, fp);
 
-      // messages returned from search not in order. Since we might not process all of them at once we need to sort
+      // messages returned from search not in order. Since we might not process all of them at once
+      // we need to sort - by receivedDate, the same field the resume timestamp is taken from.
       Arrays.sort(messages, new Comparator<Message>() {
         @Override
         public int compare(Message m1, Message m2) {
           try {
-            @SuppressWarnings("deprecation")
-            Date old = new Date(2000,1,1);
-            Date d1 = m1.getSentDate() != null ? m1.getSentDate() : old;
-            Date d2 = m2.getSentDate() != null ? m2.getSentDate() : old;
-            return d1.compareTo(d2);
-          } 
+            long d1 = m1.getReceivedDate() != null ? m1.getReceivedDate().getTime() : 0;
+            long d2 = m2.getReceivedDate() != null ? m2.getReceivedDate().getTime() : 0;
+            return Long.compare(d1, d2);
+          }
           catch (MessagingException e) {
             throw new RuntimeException("Comparator error: "+e.getMessage(), e);
           }
@@ -482,7 +498,11 @@ public class GmailBackup {
     }
   }
 
-  private static Date roundDateToPreviousDay(Date d) {
+  /**
+   * Start of the day before the given timestamp - the widest bound an IMAP SEARCH can express
+   * without risking dropping messages to date granularity or timezone skew.
+   */
+  private static Date searchWindowStart(Date d) {
     Calendar cal = Calendar.getInstance();
     cal.setTimeInMillis(Math.min(d.getTime(), new Date().getTime()));
     cal.add(Calendar.DAY_OF_YEAR, -1); // previous day
