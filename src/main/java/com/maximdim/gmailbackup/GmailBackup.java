@@ -22,6 +22,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
@@ -66,6 +70,7 @@ public class GmailBackup {
   private final boolean zip;
   private final boolean gzip;
   private final int fetchWindowDays;
+  private final int threads;
   
   // storage format:
   // dataDir/domain/year/month/day/user_timestamp.mail
@@ -85,7 +90,11 @@ public class GmailBackup {
       throw new IllegalStateException("Both zip and gzip compression specified. Choose one");
     }
     this.fetchWindowDays = Integer.parseInt(p.getProperty("fetchWindowDays", "30"));
-    
+    this.threads = Integer.parseInt(p.getProperty("threads", "4"));
+    if (this.threads < 1) {
+      throw new IllegalStateException("threads must be at least 1");
+    }
+
     Date oldestDate = getDate(p.getProperty("oldestDate", "2012/01/01"), "yyyy-MM-dd");
     this.userTimestamps = loadTimestamp(this.timestampFile, oldestDate);
     
@@ -101,69 +110,110 @@ public class GmailBackup {
     System.out.println("maxPerRun: " + this.maxPerRun);
     System.out.println("zip: " + this.zip);
     System.out.println("gzip: " + this.gzip);
+    System.out.println("threads: " + this.threads);
   }
 
   private void backup() throws Exception {
     OAuth2Authenticator.initialize();
-    IMAPStore store = null;
 
-    for(String user: this.users) {
+    // users are independent of each other - the only shared state is userTimestamps and the file
+    // it is written to. The work is almost entirely waiting on Gmail, so this is close to a
+    // straight wall clock division. Set threads=1 to go back to running them one at a time.
+    ExecutorService pool = Executors.newFixedThreadPool(this.threads);
+    List<Future<?>> futures = new ArrayList<>();
+    for(final String user: this.users) {
+      futures.add(pool.submit(new Runnable() {
+        @Override
+        public void run() {
+          backupUser(user);
+        }
+      }));
+    }
+    pool.shutdown();
+    for(Future<?> f: futures) {
       try {
-        System.out.println("### Backing up ["+user+"]");
-        String email = user + "@" + this.domain;
-        store = getStore(email);
-        if (store == null) {
-          System.out.println("Store is null, skip");
-          continue;
-        }
-        
-        UserMessagesIterator iterator = new UserMessagesIterator(store, this.userTimestamps.get(user));
-        int count = 0;
-        while(iterator.hasNext() && count < this.maxPerRun) {
-          try {
-            Message message = iterator.next();
-            File f = generateFileName(user, message);
-            boolean fileExists = f.exists();
-            if (!fileExists) {
-              saveMessage(message, f);
-            }
-            // update stats. Messages are processed in receivedDate order, so this is the exact
-            // point the next run has to resume from - no rounding, or a user with more than
-            // maxPerRun messages in a single day could never advance past that day.
-            this.userTimestamps.put(user, message.getReceivedDate());
-            System.out.println(iterator.getStats() + " " + f.getAbsolutePath() + (fileExists ? ": EXISTS" : ""));
-            count++;
-          }
-          catch (MessageRemovedIOException e) {
-            System.err.println("Message removed, skipping: "+e);
-          }
-          catch(FolderClosedIOException e) {
-            // connection dropped by the server - next run resumes from the saved timestamp
-            System.err.println("Folder closed after "+count+" messages for ["+user+"], stopping: "+e);
-            break;
-          }
-        }
-        if (count > 0) {
-          saveTimestamp(this.userTimestamps, this.timestampFile);
-        }
+        f.get(); // backupUser reports its own failures - this only surfaces the unexpected ones
       }
-      catch (Exception e) {
-        System.err.println("Error getting mail for user ["+user+"]: "+e.getClass().getSimpleName()+": "+e.getMessage());
-        e.printStackTrace(System.err);
-      }
-      finally {
-        if (store != null) {
-          store.close();
-        }
+      catch (ExecutionException e) {
+        System.err.println("Unexpected failure in backup task: "+e.getCause());
+        e.getCause().printStackTrace(System.err);
       }
     }
     System.out.println("Done\n");
   }
 
-  private File saveMessage(Message message, File f) throws Exception {
-    if (!f.getParentFile().exists()) {
-      f.getParentFile().mkdirs();
+  private void backupUser(String user) {
+    IMAPStore store = null;
+    try {
+      log(user, "### Backing up");
+      String email = user + "@" + this.domain;
+      store = getStore(user, email);
+      if (store == null) {
+        log(user, "Store is null, skip");
+        return;
+      }
+
+      Date fetchFrom;
+      synchronized (this.userTimestamps) {
+        fetchFrom = this.userTimestamps.get(user);
+      }
+      UserMessagesIterator iterator = new UserMessagesIterator(user, store, fetchFrom);
+      int count = 0;
+      while(iterator.hasNext() && count < this.maxPerRun) {
+        try {
+          Message message = iterator.next();
+          File f = generateFileName(user, message);
+          boolean fileExists = f.exists();
+          if (!fileExists) {
+            saveMessage(message, f);
+          }
+          // update stats. Messages are processed in receivedDate order, so this is the exact
+          // point the next run has to resume from - no rounding, or a user with more than
+          // maxPerRun messages in a single day could never advance past that day.
+          synchronized (this.userTimestamps) {
+            this.userTimestamps.put(user, message.getReceivedDate());
+          }
+          log(user, iterator.getStats() + " " + f.getAbsolutePath() + (fileExists ? ": EXISTS" : ""));
+          count++;
+        }
+        catch (MessageRemovedIOException e) {
+          System.err.println("["+user+"] Message removed, skipping: "+e);
+        }
+        catch(FolderClosedIOException e) {
+          // connection dropped by the server - next run resumes from the saved timestamp
+          System.err.println("["+user+"] Folder closed after "+count+" messages, stopping: "+e);
+          break;
+        }
+      }
+      if (count > 0) {
+        saveTimestamp(this.userTimestamps, this.timestampFile);
+      }
     }
+    catch (Exception e) {
+      System.err.println("Error getting mail for user ["+user+"]: "+e.getClass().getSimpleName()+": "+e.getMessage());
+      e.printStackTrace(System.err);
+    }
+    finally {
+      if (store != null) {
+        // closing is best effort - it must not take down the other users
+        try {
+          store.close();
+        }
+        catch (MessagingException e) {
+          log(user, "Error closing store: "+e);
+        }
+      }
+    }
+  }
+
+  private static void log(String user, String message) {
+    System.out.println("["+user+"] "+message);
+  }
+
+  private File saveMessage(Message message, File f) throws Exception {
+    // createDirectories rather than mkdirs - two users can be creating the same day directory at
+    // the same time, and mkdirs reports failure when it loses that race
+    Files.createDirectories(f.getParentFile().toPath());
     if (this.zip) {
       writeZip(f, message);
     }
@@ -241,16 +291,16 @@ public class GmailBackup {
     return hash.substring(0, 5);
   }
   
-  private IMAPStore getStore(String email) throws Exception {
+  private IMAPStore getStore(String user, String email) throws Exception {
     String authToken = OAuth2Authenticator.getToken(this.serviceAccountPkFile, this.serviceAccountId, email);
     if (authToken == null) {
-      System.out.println("authToken null!");
+      log(user, "authToken null!");
       return null;
     }
-    System.out.println("authToken OK");
+    log(user, "authToken OK");
 
     IMAPStore store = OAuth2Authenticator.connectToImap("imap.gmail.com", 993, email, authToken, false);
-    System.out.println("imapStore OK");
+    log(user, "imapStore OK");
     return store;
   }
   
@@ -267,7 +317,7 @@ public class GmailBackup {
   /**
    * load saved timestamp file (if available)
    */
-  private Map<String, Date> loadTimestamp(File f, Date defaultDate) {
+  Map<String, Date> loadTimestamp(File f, Date defaultDate) {
     Map<String, Date> result = new LinkedHashMap<>();
     if (f.exists() && f.canRead()) {
       try (BufferedReader br = new BufferedReader(new FileReader(f))) {
@@ -314,7 +364,7 @@ public class GmailBackup {
     return result;
   }
   
-  private static Date parseTimestamp(SimpleDateFormat df, SimpleDateFormat dfLegacy, String s) throws ParseException {
+  static Date parseTimestamp(SimpleDateFormat df, SimpleDateFormat dfLegacy, String s) throws ParseException {
     try {
       return df.parse(s);
     }
@@ -325,9 +375,11 @@ public class GmailBackup {
 
   class UserMessagesIterator implements Iterator<Message> {
     private final List<Message> messages;
+    private final String user;
     private int index;
 
-    public UserMessagesIterator(IMAPStore store, Date fetchFrom) throws MessagingException {
+    public UserMessagesIterator(String user, IMAPStore store, Date fetchFrom) throws MessagingException {
+      this.user = user;
       this.messages = getMessages(store, fetchFrom);
     }
 
@@ -353,19 +405,19 @@ public class GmailBackup {
     private List<Message> getMessages(IMAPStore store, Date fetchFrom) throws MessagingException {
       IMAPFolder folder = (IMAPFolder)store.getFolder("[Gmail]/All Mail");
       folder.open(Folder.READ_ONLY);
-      System.out.println("imap folder open OK: " + folder.getName());
+      log(this.user, "imap folder open OK: " + folder.getName());
       int totalMessages = folder.getMessageCount();
-      System.out.println("Total messages: " + totalMessages);
+      log(this.user, "Total messages: " + totalMessages);
 
       List<Message> result = new ArrayList<Message>();
       for(Message m: fetch(folder, fetchFrom)) {
         try {
           if (m.getReceivedDate() == null) {
-            System.out.println("Message received date is null: "+m.getSubject());
+            log(this.user, "Message received date is null: "+m.getSubject());
             continue;
           }
           if (m.getReceivedDate().before(fetchFrom)) {
-            //System.out.println("Message date "+m.getReceivedDate()+" is before "+fetchFrom);
+            //log(this.user, "Message date "+m.getReceivedDate()+" is before "+fetchFrom);
             continue;
           }
           if (shouldInclude(m.getFrom(), getRecipients(m))) {
@@ -373,10 +425,10 @@ public class GmailBackup {
           }
         }
         catch (MessageRemovedException e) {
-          System.out.println("Message already removed: "+e.getMessage());
+          log(this.user, "Message already removed: "+e.getMessage());
         }
       }
-      System.out.println("Result filtered to: " + result.size());
+      log(this.user, "Result filtered to: " + result.size());
       return result;
     }
 
@@ -412,7 +464,7 @@ public class GmailBackup {
         for (Address a : candidates) {
           String addressString = a.toString().toLowerCase();
           if (addressString.contains(ignore)) {
-            System.out.println("Ignoring email with address " + a);
+            log(this.user, "Ignoring email with address " + a);
             return false;
           }
         }
@@ -433,7 +485,7 @@ public class GmailBackup {
       Date searchFrom = searchWindowStart(fetchFrom);
       // Gmail seems to be returning strange result with ComparisonTerm.GE
       SearchTerm st = new ReceivedDateTerm(ComparisonTerm.GT, searchFrom);
-      System.out.println("Setting fetchFrom to "+fetchFrom+" (searching from "+searchFrom+")");
+      log(this.user, "Setting fetchFrom to "+fetchFrom+" (searching from "+searchFrom+")");
 
       // drafts live in All Mail too - let the server filter them out (UNDRAFT)
       st = new AndTerm(st, new FlagTerm(new Flags(Flags.Flag.DRAFT), false));
@@ -442,16 +494,16 @@ public class GmailBackup {
       if (fetchTo.before(new Date())) {
         SearchTerm stTo = new ReceivedDateTerm(ComparisonTerm.LT, fetchTo);
         st = new AndTerm(st, stTo);
-        System.out.println("Setting fetchTo to "+fetchTo);
+        log(this.user, "Setting fetchTo to "+fetchTo);
       }
       
       // IMAP search command disregards time, only date is used
       Message[] messages = folder.search(st);
       //Message[] messages = folder.getMessages();
-      System.out.println("Search returned: " + messages.length);
+      log(this.user, "Search returned: " + messages.length);
       
       if (messages.length == 0 && fetchTo.before(new Date())) { // our search window could be too much in the past, retry
-        System.out.println("Retrying with fetchFrom: "+fetchTo);
+        log(this.user, "Retrying with fetchFrom: "+fetchTo);
         return fetch(folder, fetchTo);
       }
       
@@ -485,18 +537,25 @@ public class GmailBackup {
    * it, and a crash at that point leaves it empty or half written - which reads back as "no
    * timestamps", sending every user back to oldestDate and re-walking years of All Mail.
    */
-  private void saveTimestamp(Map<String, Date> data, File f) {
-    System.out.println("Saving timestamps: " + data.size());
+  synchronized void saveTimestamp(Map<String, Date> data, File f) {
+    // one writer at a time: every user shares the same temp file and the same target
+    Map<String, Date> snapshot;
+    synchronized (data) {
+      snapshot = new LinkedHashMap<>(data);
+    }
+    SimpleDateFormat df = new SimpleDateFormat(USER_TIMESTAMP_FORMAT);
+    StringBuilder sb = new StringBuilder();
+    for(Map.Entry<String, Date> me: snapshot.entrySet()) {
+      sb.append(me.getKey()).append("=").append(df.format(me.getValue())).append("\n");
+    }
+    String content = sb.toString();
+    // printed in a single call so the block does not interleave with other users' output
+    System.out.print("Saving timestamps: " + snapshot.size() + "\n" + content);
 
     File tmp = new File(f.getAbsoluteFile().getParentFile(), f.getName()+".tmp");
     try {
       try (BufferedWriter bw = new BufferedWriter(new FileWriter(tmp))) {
-        SimpleDateFormat df = new SimpleDateFormat(USER_TIMESTAMP_FORMAT);
-        for(Map.Entry<String, Date> me: data.entrySet()) {
-          String line = me.getKey()+"="+df.format(me.getValue());
-          bw.write(line + "\n");
-          System.out.println(line);
-        }
+        bw.write(content);
         bw.flush();
       }
       // same directory, so the rename is atomic - readers see either the old file or the new one
@@ -512,7 +571,7 @@ public class GmailBackup {
    * Start of the day before the given timestamp - the widest bound an IMAP SEARCH can express
    * without risking dropping messages to date granularity or timezone skew.
    */
-  private static Date searchWindowStart(Date d) {
+  static Date searchWindowStart(Date d) {
     Calendar cal = Calendar.getInstance();
     cal.setTimeInMillis(Math.min(d.getTime(), new Date().getTime()));
     cal.add(Calendar.DAY_OF_YEAR, -1); // previous day
