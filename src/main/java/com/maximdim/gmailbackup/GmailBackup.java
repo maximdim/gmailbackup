@@ -30,6 +30,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -72,6 +73,8 @@ public class GmailBackup {
   private final boolean gzip;
   private final int fetchWindowDays;
   private final int threads;
+  // files actually written this run, across every user - incremented from all the backup threads
+  private final AtomicInteger filesCreated = new AtomicInteger();
   
   // storage format:
   // dataDir/domain/year/month/day/user_timestamp.mail
@@ -114,7 +117,7 @@ public class GmailBackup {
     System.out.println("threads: " + this.threads);
   }
 
-  private void backup() throws Exception {
+  private int backup() throws Exception {
     OAuth2Authenticator.initialize();
 
     // users are independent of each other - the only shared state is userTimestamps and the file
@@ -141,6 +144,7 @@ public class GmailBackup {
       }
     }
     System.out.println("Done\n");
+    return this.filesCreated.get();
   }
 
   private void backupUser(String user) {
@@ -167,6 +171,7 @@ public class GmailBackup {
           boolean fileExists = f.exists();
           if (!fileExists) {
             saveMessage(message, f);
+            this.filesCreated.incrementAndGet(); // only once the write actually succeeded
           }
           // update stats. Messages are processed in receivedDate order, so this is the exact
           // point the next run has to resume from - no rounding, or a user with more than
@@ -622,8 +627,8 @@ public class GmailBackup {
     }
     System.out.println(p);
     long started = System.nanoTime();
-    new GmailBackup(p).backup();
-    System.out.println("Total elapsed: "+formatElapsed(System.nanoTime() - started));
+    int filesCreated = new GmailBackup(p).backup();
+    System.out.println("Files created: "+filesCreated+". Total elapsed: "+formatElapsed(System.nanoTime() - started));
   }
 
   private static String formatElapsed(long nanos) {
