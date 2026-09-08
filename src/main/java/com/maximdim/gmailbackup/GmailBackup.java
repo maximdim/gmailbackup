@@ -66,6 +66,11 @@ public class GmailBackup {
   // <User, Date>
   private final Map<String, Date> userTimestamps;
 
+  // super admin to impersonate when listing the domain's mailboxes - required, there is no
+  // configured list of users any more
+  private final String adminUser;
+  private final List<String> usersExclude;
+  private final File userCacheFile;
   private final List<String> users;
   private final List<String> ignoreFrom;
   private final int maxPerRun;
@@ -85,7 +90,10 @@ public class GmailBackup {
     this.serviceAccountPkFile = new File(p.getProperty("serviceAccountPkFile"));
     this.domain = p.getProperty("domain");
     this.timestampFile = new File(p.getProperty("timestampFile"));
-    this.users = Arrays.asList(p.getProperty("users").split(","));
+    this.adminUser = trimToNull(p.getProperty("adminUser"));
+    this.usersExclude = splitList(p.getProperty("usersExclude"));
+    this.userCacheFile = userCacheFile(p);
+    this.users = resolveUsers();
     this.ignoreFrom = Arrays.asList(p.getProperty("ignoreFrom").split(","));
     this.maxPerRun = Integer.parseInt(p.getProperty("maxPerRun", "1000"));
     this.zip = Boolean.parseBoolean(p.getProperty("zip"));
@@ -109,12 +117,150 @@ public class GmailBackup {
     System.out.println("serviceAccountPkFile: " + this.serviceAccountPkFile.getAbsolutePath());
     System.out.println("domain: " + this.domain);
     System.out.println("timestampFile: " + this.timestampFile.getAbsolutePath());
-    System.out.println("users: " + this.users);
+    System.out.println("adminUser: " + this.adminUser);
+    System.out.println("userCacheFile: " + this.userCacheFile.getAbsolutePath());
+    System.out.println("usersExclude: " + this.usersExclude);
+    System.out.println("users (" + this.users.size() + "): " + this.users);
     System.out.println("ignoreFrom: " + this.ignoreFrom);
     System.out.println("maxPerRun: " + this.maxPerRun);
     System.out.println("zip: " + this.zip);
     System.out.println("gzip: " + this.gzip);
     System.out.println("threads: " + this.threads);
+  }
+
+  /**
+   * The mailboxes to back up, as listed by the Directory API.
+   *
+   * <p>Backing up nothing looks exactly like a successful run, so a failed lookup must never
+   * quietly produce an empty list. It falls back to the last list the Directory did answer with,
+   * and if there is not one the run fails loudly instead.
+   */
+  private List<String> resolveUsers() {
+    if (this.adminUser == null) {
+      throw new IllegalStateException("adminUser is required: the user list comes from the "
+          + "Directory API, which is called as a real administrator through domain wide delegation");
+    }
+    try {
+      List<String> discovered = exclude(DirectoryUsers.list(
+          this.serviceAccountPkFile, this.serviceAccountId, this.adminUser, this.domain));
+      if (discovered.isEmpty()) {
+        throw new IllegalStateException("no active users in " + this.domain);
+      }
+      System.out.println("Users from the Directory API: " + discovered.size());
+      saveUserCache(discovered);
+      return discovered;
+    }
+    catch (Exception e) {
+      System.err.println("Unable to list users of " + this.domain + " from the Directory API: "
+          + e.getClass().getSimpleName() + ": " + e.getMessage());
+      List<String> cached = exclude(loadUserCache());
+      if (!cached.isEmpty()) {
+        System.out.println("Falling back to the cached user list from "
+            + this.userCacheFile.getAbsolutePath() + ": " + cached.size() + " users");
+        return cached;
+      }
+      throw new IllegalStateException("No user list available: the Directory lookup failed and "
+          + this.userCacheFile.getAbsolutePath() + " holds no cached list", e);
+    }
+  }
+
+  List<String> getUsers() {
+    return this.users;
+  }
+
+  File getUserCacheFile() {
+    return this.userCacheFile;
+  }
+
+  static File userCacheFile(Properties p) {
+    String configured = trimToNull(p.getProperty("userCacheFile"));
+    return configured != null ? new File(configured) : new File(appDir(), "users.cache");
+  }
+
+  /**
+   * The directory the application itself sits in, which is where the cached user list goes unless
+   * userCacheFile says otherwise. Deployed, that is the folder holding gmailbackup.sh - the stub
+   * script with the jar appended, which is its own code source. Cron runs it from an unrelated
+   * working directory, so that cannot be used instead.
+   */
+  static File appDir() {
+    try {
+      File codeSource = new File(
+          GmailBackup.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+      File dir = codeSource.isDirectory() ? codeSource : codeSource.getParentFile();
+      if (dir != null) {
+        return dir;
+      }
+    }
+    catch (Exception e) {
+      // no code source, or a location that is not a plain path - fall through
+      System.err.println("Unable to locate the application directory: " + e);
+    }
+    return new File(System.getProperty("user.dir"));
+  }
+
+  private List<String> exclude(List<String> users) {
+    List<String> result = new ArrayList<>(users);
+    result.removeAll(this.usersExclude);
+    return result;
+  }
+
+  List<String> loadUserCache() {
+    List<String> result = new ArrayList<>();
+    if (!this.userCacheFile.exists() || !this.userCacheFile.canRead()) {
+      return result;
+    }
+    try {
+      for (String line : Files.readAllLines(this.userCacheFile.toPath(), StandardCharsets.UTF_8)) {
+        String user = line.trim();
+        if (!user.isEmpty() && !user.startsWith("#")) {
+          result.add(user);
+        }
+      }
+    }
+    catch (IOException e) {
+      System.err.println("Error reading the cached user list from "
+          + this.userCacheFile.getAbsolutePath() + ": " + e.getMessage());
+    }
+    return result;
+  }
+
+  /** Written through a temp file for the same reason the timestamps are - see saveTimestamp. */
+  void saveUserCache(List<String> users) {
+    StringBuilder sb = new StringBuilder("# written by gmailbackup, do not edit\n");
+    for (String user : users) {
+      sb.append(user).append("\n");
+    }
+    File tmp = new File(this.userCacheFile.getAbsoluteFile().getParentFile(),
+        this.userCacheFile.getName() + ".tmp");
+    try {
+      Files.write(tmp.toPath(), sb.toString().getBytes(StandardCharsets.UTF_8));
+      Files.move(tmp.toPath(), this.userCacheFile.toPath(),
+          StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+    }
+    catch (IOException e) {
+      // the cache is only a safety net - losing it must not stop the backup
+      System.err.println("Error caching the user list to "
+          + this.userCacheFile.getAbsolutePath() + ": " + e.getMessage());
+      tmp.delete();
+    }
+  }
+
+  static String trimToNull(String s) {
+    return s == null || s.trim().isEmpty() ? null : s.trim();
+  }
+
+  static List<String> splitList(String s) {
+    List<String> result = new ArrayList<>();
+    if (s != null) {
+      for (String part : s.split(",")) {
+        String trimmed = part.trim();
+        if (!trimmed.isEmpty()) {
+          result.add(trimmed);
+        }
+      }
+    }
+    return result;
   }
 
   private int backup() throws Exception {
@@ -362,12 +508,15 @@ public class GmailBackup {
           }
           try {
             String user = ss[0];
-            if (this.users.contains(user)) { // filter out users that are no longer being fetched
-              result.put(user, parseTimestamp(df, dfLegacy, ss[1]));
-            } else {
-              System.out.println("Ignore timestamp for user " + user);
+            // Timestamps of users not in the current list are kept rather than dropped. The list
+            // can now come from the Directory API, and a lookup that failed over to a stale cache,
+            // or an account suspended for a week, would otherwise throw away the resume point -
+            // sending that mailbox back to oldestDate and re-walking years of All Mail.
+            if (!this.users.contains(user)) {
+              System.out.println("Retaining timestamp for user not in the current list: " + user);
             }
-          } 
+            result.put(user, parseTimestamp(df, dfLegacy, ss[1]));
+          }
           catch (ParseException e) {
             System.err.println("Unable to parse date ["+ss[1]+"]");
           }
@@ -609,9 +758,11 @@ public class GmailBackup {
     return new Date(cal.getTimeInMillis());
   }
 
+  private static final String LIST_USERS = "--list-users";
+
   public static void main(String[] args) throws Exception {
-    if (args.length != 1) {
-      System.err.println("Usage: "+GmailBackup.class.getSimpleName()+" <properties file>");
+    if (args.length < 1 || args.length > 2 || (args.length == 2 && !LIST_USERS.equals(args[1]))) {
+      System.err.println("Usage: "+GmailBackup.class.getSimpleName()+" <properties file> ["+LIST_USERS+"]");
       System.exit(1);
     }
     File propFile = new File(args[0]);
@@ -626,8 +777,14 @@ public class GmailBackup {
       p.load(r);
     }
     System.out.println(p);
+    GmailBackup gmailBackup = new GmailBackup(p);
+    if (args.length == 2) {
+      // resolving the list is the whole point of the flag - no mailbox is touched
+      System.out.println("Resolved users ("+gmailBackup.users.size()+"): "+gmailBackup.users);
+      return;
+    }
     long started = System.nanoTime();
-    int filesCreated = new GmailBackup(p).backup();
+    int filesCreated = gmailBackup.backup();
     System.out.println("Files created: "+filesCreated+". Total elapsed: "+formatElapsed(System.nanoTime() - started));
   }
 
