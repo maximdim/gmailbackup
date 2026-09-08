@@ -322,8 +322,14 @@ public class GmailBackup {
           // update stats. Messages are processed in receivedDate order, so this is the exact
           // point the next run has to resume from - no rounding, or a user with more than
           // maxPerRun messages in a single day could never advance past that day.
-          synchronized (this.userTimestamps) {
-            this.userTimestamps.put(user, noLaterThanNow(message.getReceivedDate(), new Date()));
+          Date received = message.getReceivedDate();
+          if (advancesResumePoint(received, new Date())) {
+            synchronized (this.userTimestamps) {
+              this.userTimestamps.put(user, received);
+            }
+          }
+          else {
+            log(user, "Received date "+received+" is in the future, leaving the resume point where it is");
           }
           log(user, iterator.getStats() + " " + f.getAbsolutePath() + (fileExists ? ": EXISTS" : ""));
           count++;
@@ -745,16 +751,19 @@ public class GmailBackup {
 
   /**
    * The received date is whatever the server reports, and an imported or malformed message can
-   * carry one in the future. Saved as the resume point it becomes a bound no real message can
-   * pass, and that mailbox then backs up nothing at all until the date arrives - silently, since
-   * a run that finds nothing to do looks exactly like a run with no new mail. searchWindowStart
-   * already clamps the server side search for the same reason; this clamps what gets stored.
+   * carry one that has not happened yet. Saved as the resume point it becomes a bound no real
+   * message can pass, and that mailbox then backs up nothing at all until the date arrives -
+   * silently, since a run that finds nothing to do looks exactly like a run with no new mail.
+   * searchWindowStart clamps the server side search against the same problem.
    *
-   * <p>Only the resume point is clamped. The file name keeps the message's own date, so a message
-   * really sent from the future still lands under its own day.
+   * <p>Such a message leaves the resume point alone rather than moving it to now. Messages are
+   * processed in receivedDate order, so it sorts last and the point already sits at the newest
+   * real message; moving it forward to now would step over anything that arrived while the run
+   * was going, and the local cutoff would then drop that mail for good. Standing still costs one
+   * EXISTS line per run instead - the message itself is already saved, under its own date.
    */
-  static Date noLaterThanNow(Date received, Date now) {
-    return received.after(now) ? now : received;
+  static boolean advancesResumePoint(Date received, Date now) {
+    return !received.after(now);
   }
 
   /**

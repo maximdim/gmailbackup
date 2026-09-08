@@ -152,17 +152,20 @@ public class GmailBackupTest {
    * happened to one user, stuck 16 days ahead.
    */
   @Test
-  public void aFutureReceivedDateNeverBecomesTheResumePoint() throws Exception {
+  public void aFutureReceivedDateDoesNotMoveTheResumePoint() throws Exception {
     Date now = this.df.parse("2026-09-08T11:19:56");
-    assertEquals("2026-09-08T11:19:56",
-        this.df.format(GmailBackup.noLaterThanNow(this.df.parse("2026-09-24T10:35:00"), now)));
-    // anything at or before now is kept exactly, down to the second the resume point relies on
-    assertEquals("2026-09-08T11:19:56",
-        this.df.format(GmailBackup.noLaterThanNow(this.df.parse("2026-09-08T11:19:56"), now)));
-    assertEquals("2026-09-08T11:19:55",
-        this.df.format(GmailBackup.noLaterThanNow(this.df.parse("2026-09-08T11:19:55"), now)));
-    assertEquals("2020-01-01T00:00:00",
-        this.df.format(GmailBackup.noLaterThanNow(this.df.parse("2020-01-01T00:00:00"), now)));
+    assertFalse(GmailBackup.advancesResumePoint(this.df.parse("2026-09-24T10:35:00"), now));
+    // one second ahead is the same problem in miniature - a server clock slightly fast
+    assertFalse(GmailBackup.advancesResumePoint(this.df.parse("2026-09-08T11:19:57"), now));
+  }
+
+  /** Everything at or before now still advances, to the second the resume point relies on. */
+  @Test
+  public void aRealReceivedDateStillMovesTheResumePoint() throws Exception {
+    Date now = this.df.parse("2026-09-08T11:19:56");
+    assertTrue(GmailBackup.advancesResumePoint(this.df.parse("2026-09-08T11:19:56"), now));
+    assertTrue(GmailBackup.advancesResumePoint(this.df.parse("2026-09-08T11:19:55"), now));
+    assertTrue(GmailBackup.advancesResumePoint(this.df.parse("2020-01-01T00:00:00"), now));
   }
 
   // --- timestamp file -------------------------------------------------------------------------
