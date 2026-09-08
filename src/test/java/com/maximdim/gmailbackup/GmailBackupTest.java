@@ -146,6 +146,25 @@ public class GmailBackupTest {
     assertFalse(endOfRun1.before(endOfRun1));
   }
 
+  /**
+   * A message whose received date is in the future would otherwise be stored as a resume point no
+   * later message can pass, parking that mailbox until the date arrives - which is exactly what
+   * happened to one user, stuck 16 days ahead.
+   */
+  @Test
+  public void aFutureReceivedDateNeverBecomesTheResumePoint() throws Exception {
+    Date now = this.df.parse("2026-09-08T11:19:56");
+    assertEquals("2026-09-08T11:19:56",
+        this.df.format(GmailBackup.noLaterThanNow(this.df.parse("2026-09-24T10:35:00"), now)));
+    // anything at or before now is kept exactly, down to the second the resume point relies on
+    assertEquals("2026-09-08T11:19:56",
+        this.df.format(GmailBackup.noLaterThanNow(this.df.parse("2026-09-08T11:19:56"), now)));
+    assertEquals("2026-09-08T11:19:55",
+        this.df.format(GmailBackup.noLaterThanNow(this.df.parse("2026-09-08T11:19:55"), now)));
+    assertEquals("2020-01-01T00:00:00",
+        this.df.format(GmailBackup.noLaterThanNow(this.df.parse("2020-01-01T00:00:00"), now)));
+  }
+
   // --- timestamp file -------------------------------------------------------------------------
 
   @Test

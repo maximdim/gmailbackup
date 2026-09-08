@@ -323,7 +323,7 @@ public class GmailBackup {
           // point the next run has to resume from - no rounding, or a user with more than
           // maxPerRun messages in a single day could never advance past that day.
           synchronized (this.userTimestamps) {
-            this.userTimestamps.put(user, message.getReceivedDate());
+            this.userTimestamps.put(user, noLaterThanNow(message.getReceivedDate(), new Date()));
           }
           log(user, iterator.getStats() + " " + f.getAbsolutePath() + (fileExists ? ": EXISTS" : ""));
           count++;
@@ -741,6 +741,20 @@ public class GmailBackup {
       System.err.println("Error saving user timestamps to "+f.getAbsolutePath()+": "+e.getMessage());
       tmp.delete();
     }
+  }
+
+  /**
+   * The received date is whatever the server reports, and an imported or malformed message can
+   * carry one in the future. Saved as the resume point it becomes a bound no real message can
+   * pass, and that mailbox then backs up nothing at all until the date arrives - silently, since
+   * a run that finds nothing to do looks exactly like a run with no new mail. searchWindowStart
+   * already clamps the server side search for the same reason; this clamps what gets stored.
+   *
+   * <p>Only the resume point is clamped. The file name keeps the message's own date, so a message
+   * really sent from the future still lands under its own day.
+   */
+  static Date noLaterThanNow(Date received, Date now) {
+    return received.after(now) ? now : received;
   }
 
   /**
